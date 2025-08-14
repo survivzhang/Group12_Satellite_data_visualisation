@@ -1,0 +1,32 @@
+name: mnf-ningaloo
+channels:
+  - conda-forge
+dependencies:
+  - bottleneck
+  - cartopy
+  - cmocean
+  - dask
+  - h5netcdf
+  - ipykernel
+  - jupyterlab
+  - matplotlib
+  - netcdf4
+  - numba
+  - numpy
+  - pandas
+  - pip
+  - pyproj
+  - python=3.11
+  - rasterio
+  - requests
+  - rioxarray
+  - s3fs
+  - scipy
+  - shapely
+  - xarray
+  - zarr
+  - pip
+  - pip:
+      - eumartools
+      - eumdac
+      - openeo
