@@ -299,11 +299,12 @@ async def repair_missing_files(request: RepairRequest, background_tasks: Backgro
 async def get_system_status():
     """获取系统状态和健康检查"""
     try:
-        # 检查最近7天的数据完整性
+        # 检查测试时间范围的数据完整性 
         from datetime import datetime, timedelta
         
-        end_time = datetime.utcnow()
-        start_time = end_time - timedelta(days=7)
+        # 使用固定的测试时间范围
+        end_time = datetime.fromisoformat('2025-03-01T12:00:00')
+        start_time = datetime.fromisoformat('2025-03-01T00:00:00')
         
         recent_check = file_monitor.check_file_completeness(
             timelims=(start_time.isoformat(), end_time.isoformat()),
