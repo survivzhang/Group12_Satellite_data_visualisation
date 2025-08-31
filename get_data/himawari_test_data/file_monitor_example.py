@@ -56,7 +56,7 @@ def example_repair_files():
     print("=== File Repair Example ===")
     
     # 配置参数
-    timelims = ("2025-03-01T00:00:00", "2025-03-01T06:00:00")  # 缩短时间范围
+    timelims = ("2025-03-01T00:00:00", "2025-03-01T12:00:00")  # 缩短时间范围
     lonlims = (111, 116)  # 西澳大利亚地区
     latlims = (-24.5, -19.5)
     tstep = 3600

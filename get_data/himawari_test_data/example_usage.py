@@ -127,7 +127,7 @@ def example_custom_regions():
         }
     }
     
-    timelims = ("2025-03-01T00:00:00", "2025-03-01T06:00:00")
+    timelims = ("2025-03-01T00:00:00", "2025-03-01T12:00:00")
     
     for region_name, coords in regions.items():
         print(f"\nProcessing region: {region_name}")

@@ -165,3 +165,11 @@ CMD ["uvicorn", "api_example:app", "--host", "0.0.0.0", "--port", "8000"]
 4. **测试** - 编写单元测试和集成测试
 5. **安全性** - 添加认证和授权
 6. **文档** - API文档和用户指南
+
+
+# 运行示例脚本
+python file_monitor_example.py check    # 检查文件完整性
+python file_monitor_example.py repair   # 修复丢失文件
+python file_monitor_example.py auto     # 启动自动服务
+python file_monitor_example.py regions  # 多区域检查
+python file_monitor_example.py png      # 仅修复PNG
