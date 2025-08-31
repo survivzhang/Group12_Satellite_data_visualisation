@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { Parameter, TimeRange } from '@/types/research';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { MapPin, Layers, Zap } from 'lucide-react';
+import { MapPin, Layers, Zap, Image as ImageIcon } from 'lucide-react';
 
 interface ResearchMapProps {
   parameter: string;
@@ -16,20 +16,65 @@ interface ResearchMapProps {
 export function ResearchMap({ parameter, timeRange, availableParameters, isFullscreen }: ResearchMapProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [dataPoints, setDataPoints] = useState<any[]>([]);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageError, setImageError] = useState(false);
   
   const currentParam = availableParameters.find(p => p.id === parameter);
 
-  useEffect(() => {
-    // Simulate data loading
-    setIsLoading(true);
-    const timer = setTimeout(() => {
-      // Generate mock data points based on parameter
-      const mockData = generateMockData(parameter, timeRange);
-      setDataPoints(mockData);
-      setIsLoading(false);
-    }, 1000);
+  // Function to get the nearest hour timestamp for PNG filename
+  const getNearestHourTimestamp = (date: Date): string => {
+    const utcDate = new Date(date.getTime());
+    // Round down to nearest hour
+    utcDate.setUTCMinutes(0, 0, 0);
+    
+    // Format as YYYYMMDDHHMMSS for filename
+    const year = utcDate.getUTCFullYear();
+    const month = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(utcDate.getUTCDate()).padStart(2, '0');
+    const hour = String(utcDate.getUTCHours()).padStart(2, '0');
+    
+    return `${year}${month}${day}${hour}0000`;
+  };
 
-    return () => clearTimeout(timer);
+  useEffect(() => {
+    setIsLoading(true);
+    setImageError(false);
+    
+    if (parameter === 'sst') {
+      // For Sea Surface Temperature, try to load PNG image
+      const timestamp = getNearestHourTimestamp(timeRange.start);
+      const pngUrl = `http://localhost:8000/static/images/${timestamp}.png`;
+      
+      console.log(`Loading SST image for timestamp: ${timestamp}`);
+      console.log(`Image URL: ${pngUrl}`);
+      
+      // Check if image exists
+      const img = new Image();
+      img.onload = () => {
+        setImageUrl(pngUrl);
+        setIsLoading(false);
+      };
+      img.onerror = () => {
+        console.warn(`PNG not found for ${timestamp}, using mock data`);
+        setImageError(true);
+        // Fallback to mock data
+        const mockData = generateMockData(parameter, timeRange);
+        setDataPoints(mockData);
+        setImageUrl(null);
+        setIsLoading(false);
+      };
+      img.src = pngUrl;
+    } else {
+      // For other parameters, use mock data
+      const timer = setTimeout(() => {
+        const mockData = generateMockData(parameter, timeRange);
+        setDataPoints(mockData);
+        setImageUrl(null);
+        setIsLoading(false);
+      }, 1000);
+      
+      return () => clearTimeout(timer);
+    }
   }, [parameter, timeRange]);
 
   const generateMockData = (param: string, range: TimeRange) => {
@@ -67,12 +112,25 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
 
   return (
     <div className={`relative ${isFullscreen ? 'h-full' : 'h-96'} bg-gradient-to-br from-blue-900 via-blue-700 to-teal-600 rounded-lg overflow-hidden`}>
-      {/* Mock map background with Ningaloo Reef outline */}
-      <svg 
-        className="absolute inset-0 w-full h-full" 
-        viewBox={`0 0 ${isFullscreen ? '800' : '400'} ${isFullscreen ? '600' : '300'}`}
-        style={{ filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.3))' }}
-      >
+      {/* Show PNG image for SST, otherwise show mock visualization */}
+      {imageUrl && parameter === 'sst' ? (
+        <div className="absolute inset-0 w-full h-full">
+          <img 
+            src={imageUrl}
+            alt={`Sea Surface Temperature - ${getNearestHourTimestamp(timeRange.start)}`}
+            className="w-full h-full object-cover rounded-lg"
+            style={{ filter: 'contrast(1.1) brightness(1.1)' }}
+          />
+          {/* Overlay for better text readability */}
+          <div className="absolute inset-0 bg-black/10"></div>
+        </div>
+      ) : (
+        /* Mock map background with Ningaloo Reef outline */
+        <svg 
+          className="absolute inset-0 w-full h-full" 
+          viewBox={`0 0 ${isFullscreen ? '800' : '400'} ${isFullscreen ? '600' : '300'}`}
+          style={{ filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.3))' }}
+        >
         {/* Coastline outline */}
         <path
           d={isFullscreen 
@@ -134,7 +192,8 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
             </g>
           );
         })}
-      </svg>
+        </svg>
+      )}
 
       {/* Parameter info overlay */}
       <div className="absolute top-4 left-4 flex flex-col gap-2">
@@ -145,9 +204,25 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
           </div>
         </Badge>
         <Badge className="bg-white/20 backdrop-blur text-white border-white/30">
-          <MapPin className="h-3 w-3 mr-1" />
-          {dataPoints.length} data points
+          {imageUrl && parameter === 'sst' ? (
+            <>
+              <ImageIcon className="h-3 w-3 mr-1" />
+              Satellite Image
+            </>
+          ) : (
+            <>
+              <MapPin className="h-3 w-3 mr-1" />
+              {dataPoints.length} data points
+            </>
+          )}
         </Badge>
+        {imageUrl && parameter === 'sst' && (
+          <Badge className="bg-white/20 backdrop-blur text-white border-white/30">
+            <div className="text-xs">
+              {new Date(`${getNearestHourTimestamp(timeRange.start).substring(0,4)}-${getNearestHourTimestamp(timeRange.start).substring(4,6)}-${getNearestHourTimestamp(timeRange.start).substring(6,8)}T${getNearestHourTimestamp(timeRange.start).substring(8,10)}:00:00Z`).toLocaleString()}
+            </div>
+          </Badge>
+        )}
       </div>
 
       {/* Legend */}

@@ -6,6 +6,7 @@ This demonstrates how to create a REST API for your satellite data processing.
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Tuple, Optional, List
 import pandas as pd
@@ -34,6 +35,11 @@ app.add_middleware(
 # Global processor and monitor instances
 processor = HimawariDataProcessor()
 file_monitor = create_file_monitor()
+
+# Mount static files for PNG images
+png_directory = Path("data/himawari_l3c/png")
+png_directory.mkdir(parents=True, exist_ok=True)  # 确保目录存在
+app.mount("/static/images", StaticFiles(directory=str(png_directory)), name="images")
 
 # Pydantic models for request/response
 class ProcessingRequest(BaseModel):
