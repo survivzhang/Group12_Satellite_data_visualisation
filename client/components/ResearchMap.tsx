@@ -15,7 +15,6 @@ interface ResearchMapProps {
 
 export function ResearchMap({ parameter, timeRange, availableParameters, isFullscreen }: ResearchMapProps) {
   const [isLoading, setIsLoading] = useState(true);
-  const [dataPoints, setDataPoints] = useState<any[]>([]);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState(false);
   
@@ -65,53 +64,21 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
         setIsLoading(false);
       };
       img.onerror = () => {
-        console.warn(`PNG not found for ${currentTimestamp}, using mock data`);
+        console.warn(`PNG not found for ${currentTimestamp}`);
         setImageError(true);
-        // Fallback to mock data
-        const mockData = generateMockData(parameter, timeRange);
-        setDataPoints(mockData);
         setImageUrl(null);
         setIsLoading(false);
       };
       img.src = pngUrl;
-    } else if (parameter !== 'sst') {
-      // For other parameters, use mock data
-      setIsLoading(true);
-      const timer = setTimeout(() => {
-        const mockData = generateMockData(parameter, timeRange);
-        setDataPoints(mockData);
-        setImageUrl(null);
-        setIsLoading(false);
-      }, 1000);
-      
-      return () => clearTimeout(timer);
+    } else {
+      // For non-SST parameters, show placeholder
+      setIsLoading(false);
+      setImageUrl(null);
+      setImageError(false);
     }
   }, [parameter, currentTimestamp]);
 
-  const generateMockData = (param: string, range: TimeRange) => {
-    // Mock data generation based on parameter type
-    const points = [];
-    for (let i = 0; i < 20; i++) {
-      points.push({
-        id: i,
-        lat: -22.3 + (Math.random() - 0.5) * 2, // Ningaloo Reef area
-        lng: 113.8 + (Math.random() - 0.5) * 2,
-        value: getRandomValue(param),
-        timestamp: new Date(range.start.getTime() + Math.random() * (range.end.getTime() - range.start.getTime()))
-      });
-    }
-    return points;
-  };
 
-  const getRandomValue = (param: string) => {
-    switch (param) {
-      case 'sst': return 18 + Math.random() * 12; // 18-30°C
-      case 'chlorophyll': return Math.random() * 5; // 0-5 mg/m³
-      case 'salinity': return 34 + Math.random() * 2; // 34-36 PSU
-      case 'bathymetry': return -Math.random() * 200; // 0-200m depth
-      default: return Math.random() * 100;
-    }
-  };
 
   if (isLoading) {
     return (
@@ -123,7 +90,7 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
 
   return (
     <div className={`relative ${isFullscreen ? 'h-full' : 'h-96'} bg-gradient-to-br from-blue-900 via-blue-700 to-teal-600 rounded-lg overflow-hidden`}>
-      {/* Show PNG image for SST, otherwise show mock visualization */}
+      {/* Show PNG image for SST, otherwise show placeholder */}
       {imageUrl && parameter === 'sst' ? (
         <div className="absolute inset-0 w-full h-full">
           <img 
@@ -136,74 +103,20 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
           <div className="absolute inset-0 bg-black/10"></div>
         </div>
       ) : (
-        /* Mock map background with Ningaloo Reef outline */
-        <svg 
-          className="absolute inset-0 w-full h-full" 
-          viewBox={`0 0 ${isFullscreen ? '800' : '400'} ${isFullscreen ? '600' : '300'}`}
-          style={{ filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.3))' }}
-        >
-        {/* Coastline outline */}
-        <path
-          d={isFullscreen 
-            ? "M 100 100 Q 200 80 300 120 T 600 160 L 700 240 Q 680 400 640 500 L 560 560 Q 400 540 240 500 Q 160 400 140 300 Q 120 200 100 100 Z"
-            : "M 50 50 Q 100 40 150 60 T 300 80 L 350 120 Q 340 200 320 250 L 280 280 Q 200 270 120 250 Q 80 200 70 150 Q 60 100 50 50 Z"
-          }
-          fill="rgba(139, 69, 19, 0.3)"
-          stroke="rgba(139, 69, 19, 0.6)"
-          strokeWidth="2"
-        />
-        
-        {/* Reef areas */}
-        <ellipse 
-          cx={isFullscreen ? "360" : "180"} 
-          cy={isFullscreen ? "240" : "120"} 
-          rx={isFullscreen ? "120" : "60"} 
-          ry={isFullscreen ? "60" : "30"} 
-          fill="rgba(34, 197, 94, 0.4)" 
-        />
-        <ellipse 
-          cx={isFullscreen ? "440" : "220"} 
-          cy={isFullscreen ? "360" : "180"} 
-          rx={isFullscreen ? "80" : "40"} 
-          ry={isFullscreen ? "40" : "20"} 
-          fill="rgba(34, 197, 94, 0.4)" 
-        />
-        <ellipse 
-          cx={isFullscreen ? "300" : "150"} 
-          cy={isFullscreen ? "400" : "200"} 
-          rx={isFullscreen ? "60" : "30"} 
-          ry={isFullscreen ? "30" : "15"} 
-          fill="rgba(34, 197, 94, 0.4)" 
-        />
-
-        {/* Data points visualization */}
-        {dataPoints.map((point, index) => {
-          const scale = isFullscreen ? 2 : 1;
-          const x = (100 * scale) + (point.lng - 113) * (50 * scale);
-          const y = (100 * scale) + (point.lat + 22.5) * (40 * scale);
-          const intensity = Math.abs(point.value) / 100;
-          
-          return (
-            <g key={point.id}>
-              <circle
-                cx={x}
-                cy={y}
-                r={(4 + intensity * 6) * scale}
-                fill={currentParam?.color}
-                fillOpacity={0.7}
-                className="animate-pulse"
-              />
-              <circle
-                cx={x}
-                cy={y}
-                r={2 * scale}
-                fill="white"
-                fillOpacity={0.9}
-              />
-            </g>
-          );
-        })}
-        </svg>
+        /* Placeholder for non-SST parameters or when image is not available */
+        <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-600 to-slate-800">
+          <div className="text-center text-white/80">
+            <div className="text-lg font-medium mb-2">
+              {parameter === 'sst' && imageError ? 'Image not available' : `${currentParam?.name} Data`}
+            </div>
+            <div className="text-sm opacity-75">
+              {parameter === 'sst' && imageError 
+                ? `No satellite data for ${currentTimestamp}`
+                : 'Visualization coming soon'
+              }
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Parameter info overlay */}
@@ -223,7 +136,7 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
           ) : (
             <>
               <MapPin className="h-3 w-3 mr-1" />
-              {dataPoints.length} data points
+              {parameter === 'sst' ? 'No data available' : 'Coming soon'}
             </>
           )}
         </Badge>
