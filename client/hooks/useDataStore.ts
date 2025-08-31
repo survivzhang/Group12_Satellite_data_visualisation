@@ -132,12 +132,12 @@ export function useDataStore(): DataStore {
       // 首先检查文件完整性
       await checkMissingFiles();
       
-      // 如果有缺失文件，尝试修复（这里可以选择是否自动修复）
+      // 如果有缺失文件，自动触发修复
       if (missingFiles > 0) {
-        console.log(`Found ${missingFiles} missing files. Consider running repair.`);
+        console.log(`Found ${missingFiles} missing files. Starting auto repair...`);
         
-        // 可选：自动触发修复
-        // await triggerRepair();
+        // 自动触发修复
+        await triggerAutoRepair();
       }
       
       // 获取系统状态
@@ -172,6 +172,80 @@ export function useDataStore(): DataStore {
       setIsUpdating(false);
     }
   }, [checkMissingFiles, missingFiles]);
+
+  const triggerAutoRepair = useCallback(async () => {
+    try {
+      console.log('Triggering automatic file repair...');
+      
+      // 设置修复请求参数
+      const repairRequest = {
+        start_time: '2025-03-01T00:00:00',
+        end_time: '2025-03-01T12:00:00',
+        west_lon: 113.0,  // Ningaloo 区域
+        east_lon: 115.0,
+        south_lat: -24.0,
+        north_lat: -21.0,
+        time_step_hours: 1,
+        repair_nc: true,
+        repair_png: true
+      };
+
+      const response = await fetch(`${API_BASE_URL}/repair-files`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(repairRequest)
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Auto repair started:', result);
+        
+        // 轮询检查修复状态
+        if (result.task_id) {
+          await pollRepairStatus(result.task_id);
+        }
+      } else {
+        console.error('Auto repair failed:', response.statusText);
+      }
+    } catch (error) {
+      console.error('Error triggering auto repair:', error);
+    }
+  }, []);
+
+  const pollRepairStatus = useCallback(async (taskId: string) => {
+    const maxPolls = 30; // 最多轮询30次（约5分钟）
+    let pollCount = 0;
+    
+    const poll = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/status/${taskId}`);
+        if (response.ok) {
+          const status = await response.json();
+          console.log(`Repair status: ${status.status} - ${status.message}`);
+          
+          if (status.status === 'completed') {
+            console.log('Auto repair completed successfully!');
+            // 重新检查文件以更新状态
+            await checkMissingFiles();
+            return;
+          } else if (status.status === 'failed') {
+            console.error('Auto repair failed:', status.message);
+            return;
+          } else if (status.status === 'processing' && pollCount < maxPolls) {
+            // 继续轮询
+            setTimeout(poll, 10000); // 10秒后再次检查
+            pollCount++;
+          }
+        }
+      } catch (error) {
+        console.error('Error polling repair status:', error);
+      }
+    };
+    
+    poll();
+  }, [checkMissingFiles]);
   
   const simulateDataUpdate = useCallback(async () => {
     // 备用的模拟更新（当API不可用时）

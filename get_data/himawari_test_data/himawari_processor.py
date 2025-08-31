@@ -15,6 +15,8 @@ import earthaccess
 import numpy as np
 import pandas as pd
 import xarray as xr
+import matplotlib
+matplotlib.use('Agg')  # 使用非交互式后端，只生成文件不显示窗口
 import matplotlib.pyplot as plt
 from pyproj import Proj
 
@@ -838,67 +840,68 @@ class HimawariFileMonitor:
         """
         print("\n=== Starting File Repair ===")
         
-        # 需要修复的文件列表
-        files_to_repair = []
+        nc_repaired_count = 0
+        nc_failed_count = 0
+        png_repaired_count = 0
+        png_failed_count = 0
         
+        # 第1步：修复NC文件（下载和处理）
         if repair_nc:
-            files_to_repair.extend(check_results['nc_files']['missing'])
-            files_to_repair.extend(check_results['nc_files']['corrupted'])
+            nc_files_to_repair = []
+            nc_files_to_repair.extend(check_results['nc_files']['missing'])
+            nc_files_to_repair.extend(check_results['nc_files']['corrupted'])
+            nc_files_to_repair = sorted(list(set(nc_files_to_repair)))
             
-        # 去重并排序
-        files_to_repair = sorted(list(set(files_to_repair)))
-        
-        if not files_to_repair:
-            print("No files need to be repaired.")
-            return
-            
-        print(f"Files to repair: {len(files_to_repair)}")
-        
-        # 确保登录
-        self.processor.ensure_earthdata_login(netrc_path)
-        
-        # 修复文件
-        repaired_count = 0
-        failed_count = 0
-        
-        for i, time_str in enumerate(files_to_repair, 1):
-            print(f"\n[{i}/{len(files_to_repair)}] Repairing {time_str}...")
-            
-            try:
-                # 转换时间字符串为datetime64
-                dt = np.datetime64(pd.to_datetime(time_str, format="%Y%m%d%H%M%S"))
+            if nc_files_to_repair:
+                print(f"\n--- Step 1: Repairing {len(nc_files_to_repair)} NC files ---")
                 
-                # 处理单个时间步
-                self.processor._process_single_timestamp(dt, lonlims, latlims)
+                # 确保登录
+                self.processor.ensure_earthdata_login(netrc_path)
                 
-                # 如果需要修复PNG但nc文件成功处理，生成PNG
-                if repair_png and time_str in check_results['png_files']['missing']:
-                    self._regenerate_png(time_str)
-                
-                repaired_count += 1
-                print(f"✓ Successfully repaired {time_str}")
-                
-            except Exception as e:
-                failed_count += 1
-                print(f"✗ Failed to repair {time_str}: {e}")
-                
-        print(f"\n=== Repair Complete ===")
-        print(f"Successfully repaired: {repaired_count}")
-        print(f"Failed to repair: {failed_count}")
+                for i, time_str in enumerate(nc_files_to_repair, 1):
+                    print(f"[{i}/{len(nc_files_to_repair)}] Downloading and processing {time_str}...")
+                    
+                    try:
+                        # 转换时间字符串为datetime64
+                        dt = np.datetime64(pd.to_datetime(time_str, format="%Y%m%d%H%M%S"))
+                        
+                        # 处理单个时间步（会同时下载NC和生成PNG）
+                        self.processor._process_single_timestamp(dt, lonlims, latlims)
+                        
+                        nc_repaired_count += 1
+                        print(f"✓ Successfully repaired NC and PNG for {time_str}")
+                        
+                    except Exception as e:
+                        nc_failed_count += 1
+                        print(f"✗ Failed to repair {time_str}: {e}")
+            else:
+                print("--- Step 1: No NC files need repair ---")
         
-        # 如果只需要修复PNG文件
-        if repair_png and not repair_nc:
+        # 第2步：修复PNG文件（基于已存在的NC文件）
+        if repair_png:
+            # 找出缺少PNG但有NC文件的时间点
             png_only_repairs = [t for t in check_results['png_files']['missing'] 
                              if t in check_results['nc_files']['existing']]
             
             if png_only_repairs:
-                print(f"\nRegenerating {len(png_only_repairs)} PNG files...")
-                for time_str in png_only_repairs:
+                print(f"\n--- Step 2: Regenerating {len(png_only_repairs)} PNG files from existing NC files ---")
+                
+                for i, time_str in enumerate(png_only_repairs, 1):
+                    print(f"[{i}/{len(png_only_repairs)}] Regenerating PNG for {time_str}...")
                     try:
                         self._regenerate_png(time_str)
+                        png_repaired_count += 1
                         print(f"✓ Regenerated PNG for {time_str}")
                     except Exception as e:
+                        png_failed_count += 1
                         print(f"✗ Failed to regenerate PNG for {time_str}: {e}")
+            else:
+                print("--- Step 2: No PNG-only repairs needed ---")
+                
+        print(f"\n=== Repair Complete ===")
+        print(f"NC files - Successfully repaired: {nc_repaired_count}, Failed: {nc_failed_count}")
+        print(f"PNG files - Successfully regenerated: {png_repaired_count}, Failed: {png_failed_count}")
+        print(f"Total operations: {nc_repaired_count + png_repaired_count} successful, {nc_failed_count + png_failed_count} failed")
     
     def _regenerate_png(self, time_str: str):
         """从已存在的nc文件重新生成PNG"""

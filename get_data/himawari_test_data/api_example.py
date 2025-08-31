@@ -258,10 +258,13 @@ async def repair_missing_files(request: RepairRequest, background_tasks: Backgro
             tstep=request.time_step_hours * 3600
         )
         
-        # 统计需要修复的文件数量
-        files_to_repair = len(check_results['nc_files']['missing']) + len(check_results['nc_files']['corrupted'])
+        # 统计需要修复的操作数量
+        nc_repairs = len(check_results['nc_files']['missing']) + len(check_results['nc_files']['corrupted'])
+        png_only_repairs = [t for t in check_results['png_files']['missing'] 
+                           if t in check_results['nc_files']['existing']]
+        total_operations = nc_repairs + len(png_only_repairs)
         
-        if files_to_repair == 0:
+        if total_operations == 0:
             return ProcessingStatus(
                 task_id=task_id,
                 status="completed",
@@ -272,7 +275,7 @@ async def repair_missing_files(request: RepairRequest, background_tasks: Backgro
         # 存储任务信息
         tasks[task_id] = {
             "status": "pending",
-            "message": f"Queued repair for {files_to_repair} files",
+            "message": f"Queued repair for {total_operations} operations ({nc_repairs} NC + {len(png_only_repairs)} PNG)",
             "progress": 0,
             "request": request,
             "check_results": check_results
@@ -289,7 +292,7 @@ async def repair_missing_files(request: RepairRequest, background_tasks: Backgro
         return ProcessingStatus(
             task_id=task_id,
             status="pending",
-            message=f"Repair task started for {files_to_repair} files"
+            message=f"Repair task started for {total_operations} operations"
         )
         
     except Exception as e:
@@ -336,6 +339,72 @@ async def get_system_status():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"System status check failed: {str(e)}")
 
+@app.post("/auto-monitor-repair")
+async def auto_monitor_and_repair(background_tasks: BackgroundTasks):
+    """自动监控并修复缺失文件"""
+    try:
+        # 检查文件完整性
+        check_results = file_monitor.check_file_completeness(
+            timelims=('2025-03-01T00:00:00', '2025-03-01T12:00:00'),
+            tstep=3600
+        )
+        
+        # 计算缺失文件数量
+        total_missing = (len(check_results['nc_files']['missing']) + 
+                        len(check_results['nc_files']['corrupted']) + 
+                        len(check_results['png_files']['missing']))
+        
+        if total_missing == 0:
+            return {
+                "status": "complete",
+                "message": "No missing files detected - all files are present",
+                "missing_files": 0
+            }
+        
+        # 如果有缺失文件，自动启动修复
+        import uuid
+        task_id = str(uuid.uuid4())
+        
+        repair_request = RepairRequest(
+            start_time='2025-03-01T00:00:00',
+            end_time='2025-03-01T12:00:00',
+            west_lon=113.0,
+            east_lon=115.0,
+            south_lat=-24.0,
+            north_lat=-21.0,
+            time_step_hours=1,
+            repair_nc=True,
+            repair_png=True
+        )
+        
+        # 存储任务信息
+        tasks[task_id] = {
+            "status": "pending",
+            "message": f"Auto repair queued for {total_missing} missing files",
+            "progress": 0,
+            "request": repair_request,
+            "check_results": check_results,
+            "auto_triggered": True
+        }
+        
+        # 添加后台任务
+        background_tasks.add_task(
+            run_repair_task,
+            task_id,
+            repair_request,
+            check_results
+        )
+        
+        return {
+            "status": "repair_started",
+            "message": f"Auto repair started for {total_missing} missing files",
+            "task_id": task_id,
+            "missing_files": total_missing
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Auto monitor repair failed: {str(e)}")
+
 async def run_processing_task(task_id: str, request: ProcessingRequest):
     """Background task for processing satellite data."""
     try:
@@ -372,6 +441,24 @@ async def run_repair_task(task_id: str, request: RepairRequest, check_results: d
         tasks[task_id]["message"] = "Repairing missing files..."
         tasks[task_id]["progress"] = 10
         
+        # 计算需要修复的文件总数
+        nc_files_to_repair = len(check_results['nc_files']['missing']) + len(check_results['nc_files']['corrupted'])
+        
+        # PNG文件分为两种：需要下载NC的和只需要从现有NC生成的
+        png_files_missing = check_results['png_files']['missing']
+        nc_existing = check_results['nc_files']['existing']
+        png_only_repairs = [t for t in png_files_missing if t in nc_existing]
+        
+        total_operations = nc_files_to_repair
+        if request.repair_png:
+            total_operations += len(png_only_repairs)
+        
+        print(f"Starting repair: {nc_files_to_repair} NC files, {len(png_only_repairs)} PNG-only files...")
+        
+        # 更新进度
+        tasks[task_id]["progress"] = 20
+        tasks[task_id]["message"] = f"Processing {total_operations} operations ({nc_files_to_repair} NC + {len(png_only_repairs)} PNG)..."
+        
         # Run the actual repair
         await asyncio.to_thread(
             file_monitor.repair_missing_files,
@@ -382,16 +469,40 @@ async def run_repair_task(task_id: str, request: RepairRequest, check_results: d
             repair_png=request.repair_png
         )
         
+        # 更新进度
+        tasks[task_id]["progress"] = 90
+        tasks[task_id]["message"] = "Verifying repaired files..."
+        
+        # 重新检查文件完整性以验证修复结果
+        verification_results = file_monitor.check_file_completeness(
+            timelims=(request.start_time, request.end_time),
+            tstep=request.time_step_hours * 3600,
+            check_nc=request.repair_nc,
+            check_png=request.repair_png
+        )
+        
+        # 重新计算修复后的状态
+        remaining_nc = len(verification_results['nc_files']['missing']) + len(verification_results['nc_files']['corrupted'])
+        remaining_png_only = [t for t in verification_results['png_files']['missing'] 
+                             if t in verification_results['nc_files']['existing']]
+        
+        remaining_operations = remaining_nc + (len(remaining_png_only) if request.repair_png else 0)
+        repaired_count = total_operations - remaining_operations
+        
         # Mark as completed
         tasks[task_id]["status"] = "completed"
-        tasks[task_id]["message"] = "File repair completed successfully"
+        tasks[task_id]["message"] = f"Repair completed: {repaired_count}/{total_operations} operations successful"
         tasks[task_id]["progress"] = 100
+        tasks[task_id]["verification_results"] = verification_results
+        
+        print(f"Repair completed: {repaired_count}/{total_operations} operations successful")
         
     except Exception as e:
         # Mark as failed
         tasks[task_id]["status"] = "failed"
         tasks[task_id]["message"] = f"File repair failed: {str(e)}"
         tasks[task_id]["progress"] = 0
+        print(f"Repair failed: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
