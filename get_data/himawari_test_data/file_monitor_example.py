@@ -143,7 +143,7 @@ def example_custom_regions():
         }
     }
     
-    timelims = ("2025-03-01T00:00:00", "2025-03-01T06:00:00")
+    timelims = ("2025-03-01T00:00:00", "2025-03-01T12:00:00")
     tstep = 3600
     
     for region_name, config in regions.items():
@@ -177,7 +177,7 @@ def example_png_only_repair():
     
     print("=== PNG-Only Repair Example ===")
     
-    timelims = ("2025-03-01T00:00:00", "2025-03-01T06:00:00")
+    timelims = ("2025-03-01T00:00:00", "2025-03-01T12:00:00")
     tstep = 3600
     
     # 创建文件监控器

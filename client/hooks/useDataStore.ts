@@ -7,12 +7,45 @@ interface DataStore {
   isUpdating: boolean;
   missingFiles: number;
   updateData: () => Promise<void>;
+  systemStatus: any;
 }
+
+interface FileCheckResponse {
+  expected_files: number;
+  nc_files: {
+    existing: string[];
+    missing: string[];
+    corrupted: string[];
+  };
+  png_files: {
+    existing: string[];
+    missing: string[];
+  };
+  summary: {
+    total_expected: number;
+    nc_files: {
+      existing: number;
+      missing: number;
+      corrupted: number;
+      completion_rate: string;
+    };
+    png_files: {
+      existing: number;
+      missing: number;
+      completion_rate: string;
+    };
+  };
+  timestamp: string;
+}
+
+// API配置
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export function useDataStore(): DataStore {
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [missingFiles, setMissingFiles] = useState(0);
+  const [systemStatus, setSystemStatus] = useState(null);
 
   // Load initial data from localStorage
   useEffect(() => {
@@ -30,8 +63,51 @@ export function useDataStore(): DataStore {
     checkMissingFiles();
   }, []);
 
-  const checkMissingFiles = useCallback(() => {
-    // Simulate scanning local storage for missing data files
+  const checkMissingFiles = useCallback(async () => {
+    try {
+      const endTime = new Date('2025-03-01T12:00:00Z');
+      const startTime = new Date('2025-03-01T00:00:00Z');
+      
+      const response = await fetch(`${API_BASE_URL}/check-files`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          start_time: startTime.toISOString(),
+          end_time: endTime.toISOString(),
+          time_step_hours: 1,
+          check_nc: true,
+          check_png: true
+        })
+      });
+      
+      if (response.ok) {
+        const data: FileCheckResponse = await response.json();
+        
+        // 计算总的缺失文件数
+        const totalMissing = data.nc_files.missing.length + 
+                           data.nc_files.corrupted.length + 
+                           data.png_files.missing.length;
+        
+        setMissingFiles(totalMissing);
+        setLastUpdate(data.timestamp);
+        
+        console.log('File check completed:', data.summary);
+      } else {
+        console.error('File check failed:', response.statusText);
+        // 如果API失败，回退到模拟检查
+        simulateFileCheck();
+      }
+    } catch (error) {
+      console.error('Error checking files:', error);
+      // 如果网络错误，回退到模拟检查
+      simulateFileCheck();
+    }
+  }, []);
+  
+  const simulateFileCheck = useCallback(() => {
+    // 备用的模拟检查（当API不可用时）
     const expectedFiles = [
       'sst-data', 
       'chlorophyll-data', 
@@ -53,39 +129,75 @@ export function useDataStore(): DataStore {
     setIsUpdating(true);
     
     try {
-      // Simulate data fetching process
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // 首先检查文件完整性
+      await checkMissingFiles();
       
-      // Mock data files to be "fetched"
-      const dataFiles = [
-        { key: 'ningaloo-sst-data', data: generateMockData('sst') },
-        { key: 'ningaloo-chlorophyll-data', data: generateMockData('chlorophyll') },
-        { key: 'ningaloo-salinity-data', data: generateMockData('salinity') },
-        { key: 'ningaloo-bathymetry-data', data: generateMockData('bathymetry') }
-      ];
+      // 如果有缺失文件，尝试修复（这里可以选择是否自动修复）
+      if (missingFiles > 0) {
+        console.log(`Found ${missingFiles} missing files. Consider running repair.`);
+        
+        // 可选：自动触发修复
+        // await triggerRepair();
+      }
       
-      // "Download" and store data files
-      dataFiles.forEach(file => {
-        localStorage.setItem(file.key, JSON.stringify(file.data));
-      });
+      // 获取系统状态
+      try {
+        const statusResponse = await fetch(`${API_BASE_URL}/system-status`);
+        if (statusResponse.ok) {
+          const status = await statusResponse.json();
+          setSystemStatus(status);
+          console.log('System status updated:', status);
+        }
+      } catch (statusError) {
+        console.warn('Could not fetch system status:', statusError);
+      }
       
-      // Update metadata
+      // 更新本地元数据
       const now = new Date().toISOString();
       const metadata = {
         lastUpdate: now,
-        filesCount: dataFiles.length,
-        totalSize: dataFiles.reduce((sum, file) => sum + JSON.stringify(file.data).length, 0)
+        lastCheck: now,
+        missingFiles: missingFiles
       };
       
       localStorage.setItem('ningaloo-research-data', JSON.stringify(metadata));
       setLastUpdate(now);
-      setMissingFiles(0);
       
     } catch (error) {
       console.error('Failed to update data:', error);
+      
+      // 如果API不可用，回退到模拟模式
+      await simulateDataUpdate();
     } finally {
       setIsUpdating(false);
     }
+  }, [checkMissingFiles, missingFiles]);
+  
+  const simulateDataUpdate = useCallback(async () => {
+    // 备用的模拟更新（当API不可用时）
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    const dataFiles = [
+      { key: 'ningaloo-sst-data', data: generateMockData('sst') },
+      { key: 'ningaloo-chlorophyll-data', data: generateMockData('chlorophyll') },
+      { key: 'ningaloo-salinity-data', data: generateMockData('salinity') },
+      { key: 'ningaloo-bathymetry-data', data: generateMockData('bathymetry') }
+    ];
+    
+    dataFiles.forEach(file => {
+      localStorage.setItem(file.key, JSON.stringify(file.data));
+    });
+    
+    const now = new Date().toISOString();
+    const metadata = {
+      lastUpdate: now,
+      filesCount: dataFiles.length,
+      totalSize: dataFiles.reduce((sum, file) => sum + JSON.stringify(file.data).length, 0)
+    };
+    
+    localStorage.setItem('ningaloo-research-data', JSON.stringify(metadata));
+    setLastUpdate(now);
+    setMissingFiles(0);
   }, []);
 
   const generateMockData = (parameter: string) => {
@@ -137,6 +249,7 @@ export function useDataStore(): DataStore {
     lastUpdate,
     isUpdating,
     missingFiles,
-    updateData
+    updateData,
+    systemStatus
   };
 }

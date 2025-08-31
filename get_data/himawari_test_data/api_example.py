@@ -12,8 +12,9 @@ import pandas as pd
 from pathlib import Path
 import asyncio
 from datetime import datetime
+import time
 
-from himawari_processor import HimawariDataProcessor
+from himawari_processor import HimawariDataProcessor, HimawariFileMonitor, create_file_monitor
 
 app = FastAPI(
     title="Himawari Satellite Data API",
@@ -30,8 +31,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global processor instance
+# Global processor and monitor instances
 processor = HimawariDataProcessor()
+file_monitor = create_file_monitor()
 
 # Pydantic models for request/response
 class ProcessingRequest(BaseModel):
@@ -53,6 +55,31 @@ class DataManifest(BaseModel):
     total_files: int
     time_range: Tuple[str, str]
     files: List[dict]
+
+class FileCheckRequest(BaseModel):
+    start_time: str  # ISO format: "2025-03-01T00:00:00"
+    end_time: str
+    time_step_hours: int = 1
+    check_nc: bool = True
+    check_png: bool = True
+
+class FileCheckResponse(BaseModel):
+    expected_files: int
+    nc_files: dict
+    png_files: dict
+    summary: dict
+    timestamp: str
+
+class RepairRequest(BaseModel):
+    start_time: str
+    end_time: str
+    west_lon: float
+    east_lon: float
+    south_lat: float
+    north_lat: float
+    time_step_hours: int = 1
+    repair_nc: bool = True
+    repair_png: bool = True
 
 # In-memory task storage (use Redis in production)
 tasks = {}
@@ -194,6 +221,120 @@ async def list_visualizations():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list images: {str(e)}")
 
+@app.post("/check-files", response_model=FileCheckResponse)
+async def check_file_completeness(request: FileCheckRequest):
+    """检查文件完整性"""
+    try:
+        # 执行文件完整性检查
+        results = file_monitor.check_file_completeness(
+            timelims=(request.start_time, request.end_time),
+            tstep=request.time_step_hours * 3600,  # 转换为秒
+            check_nc=request.check_nc,
+            check_png=request.check_png
+        )
+        
+        return FileCheckResponse(
+            expected_files=results['expected_files'],
+            nc_files=results['nc_files'],
+            png_files=results['png_files'], 
+            summary=results['summary'],
+            timestamp=datetime.utcnow().isoformat()
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"File check failed: {str(e)}")
+
+@app.post("/repair-files", response_model=ProcessingStatus)
+async def repair_missing_files(request: RepairRequest, background_tasks: BackgroundTasks):
+    """修复丢失的文件"""
+    import uuid
+    
+    task_id = str(uuid.uuid4())
+    
+    # 先检查文件完整性
+    try:
+        check_results = file_monitor.check_file_completeness(
+            timelims=(request.start_time, request.end_time),
+            tstep=request.time_step_hours * 3600
+        )
+        
+        # 统计需要修复的文件数量
+        files_to_repair = len(check_results['nc_files']['missing']) + len(check_results['nc_files']['corrupted'])
+        
+        if files_to_repair == 0:
+            return ProcessingStatus(
+                task_id=task_id,
+                status="completed",
+                message="No files need repair - all files are complete",
+                progress=100
+            )
+        
+        # 存储任务信息
+        tasks[task_id] = {
+            "status": "pending",
+            "message": f"Queued repair for {files_to_repair} files",
+            "progress": 0,
+            "request": request,
+            "check_results": check_results
+        }
+        
+        # 添加后台任务
+        background_tasks.add_task(
+            run_repair_task,
+            task_id,
+            request,
+            check_results
+        )
+        
+        return ProcessingStatus(
+            task_id=task_id,
+            status="pending",
+            message=f"Repair task started for {files_to_repair} files"
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Repair initialization failed: {str(e)}")
+
+@app.get("/system-status")
+async def get_system_status():
+    """获取系统状态和健康检查"""
+    try:
+        # 检查最近7天的数据完整性
+        from datetime import datetime, timedelta
+        
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(days=7)
+        
+        recent_check = file_monitor.check_file_completeness(
+            timelims=(start_time.isoformat(), end_time.isoformat()),
+            tstep=3600  # 每小时检查
+        )
+        
+        # 系统信息
+        import psutil
+        import os
+        
+        system_info = {
+            "system": {
+                "cpu_percent": psutil.cpu_percent(),
+                "memory_percent": psutil.virtual_memory().percent,
+                "disk_usage": psutil.disk_usage('/').percent,
+                "uptime": time.time() - psutil.boot_time()
+            },
+            "data_status": recent_check['summary'],
+            "storage": {
+                "base_dir": str(file_monitor.base_dir),
+                "parts_files": len(list(file_monitor.parts_dir.glob("*.nc"))),
+                "png_files": len(list(file_monitor.png_dir.glob("*.png")))
+            },
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        return system_info
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"System status check failed: {str(e)}")
+
 async def run_processing_task(task_id: str, request: ProcessingRequest):
     """Background task for processing satellite data."""
     try:
@@ -220,6 +361,35 @@ async def run_processing_task(task_id: str, request: ProcessingRequest):
         # Mark as failed
         tasks[task_id]["status"] = "failed"
         tasks[task_id]["message"] = f"Processing failed: {str(e)}"
+        tasks[task_id]["progress"] = 0
+
+async def run_repair_task(task_id: str, request: RepairRequest, check_results: dict):
+    """Background task for repairing missing files."""
+    try:
+        # Update status
+        tasks[task_id]["status"] = "processing"
+        tasks[task_id]["message"] = "Repairing missing files..."
+        tasks[task_id]["progress"] = 10
+        
+        # Run the actual repair
+        await asyncio.to_thread(
+            file_monitor.repair_missing_files,
+            check_results=check_results,
+            lonlims=(request.west_lon, request.east_lon),
+            latlims=(request.south_lat, request.north_lat),
+            repair_nc=request.repair_nc,
+            repair_png=request.repair_png
+        )
+        
+        # Mark as completed
+        tasks[task_id]["status"] = "completed"
+        tasks[task_id]["message"] = "File repair completed successfully"
+        tasks[task_id]["progress"] = 100
+        
+    except Exception as e:
+        # Mark as failed
+        tasks[task_id]["status"] = "failed"
+        tasks[task_id]["message"] = f"File repair failed: {str(e)}"
         tasks[task_id]["progress"] = 0
 
 if __name__ == "__main__":
