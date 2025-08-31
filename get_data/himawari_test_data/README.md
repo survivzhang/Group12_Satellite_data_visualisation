@@ -17,9 +17,6 @@ This module provides tools for downloading, processing, and serving Himawari-9 s
 himawari_test_data/
 ├── himawari_processor.py        # 核心数据处理类
 ├── api_example.py              # FastAPI后端API
-├── file_monitor_example.py     # 文件监控示例
-├── example_usage.py            # 基础使用示例
-├── test_api.py                 # API测试脚本
 ├── data/                       # 数据目录
 │   └── himawari_l3c/
 │       ├── parts/              # 处理后的NC文件
@@ -77,18 +74,6 @@ API服务启动后：
 - 📚 自动文档: http://localhost:8000/docs
 - 🖼️ 静态图片: http://localhost:8000/static/images/
 
-### 4. 测试系统
-
-```bash
-# 检查文件完整性
-python file_monitor_example.py check
-
-# 自动修复缺失文件
-python file_monitor_example.py repair
-
-# 测试API功能
-python test_api.py
-```
 
 ## 📡 API端点
 
@@ -240,11 +225,3 @@ CMD ["uvicorn", "api_example:app", "--host", "0.0.0.0", "--port", "8000"]
 4. **测试** - 编写单元测试和集成测试
 5. **安全性** - 添加认证和授权
 6. **文档** - API文档和用户指南
-
-
-# 运行示例脚本
-python file_monitor_example.py check    # 检查文件完整性
-python file_monitor_example.py repair   # 修复丢失文件
-python file_monitor_example.py auto     # 启动自动服务
-python file_monitor_example.py regions  # 多区域检查
-python file_monitor_example.py png      # 仅修复PNG
