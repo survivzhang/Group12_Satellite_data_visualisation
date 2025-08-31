@@ -1,11 +1,15 @@
 # Himawari Satellite Data Processing Requirements
 # 
+# Project: Group12 Satellite Data Visualisation
+# Updated: 2024 - includes frontend integration support
+# 
 # Installation Instructions:
 # 1. Create virtual environment: python -m venv venv
 # 2. Activate virtual environment:
 #    - Windows: venv\Scripts\activate
 #    - macOS/Linux: source venv/bin/activate
 # 3. Install dependencies: pip install -r requirements.txt
+# 4. Create .netrc file with NASA Earthdata credentials
 
 # Core Scientific Computing
 numpy>=1.24.0
@@ -80,7 +84,17 @@ netcdf4>=1.6.4
 h5py>=3.9.0
 zarr>=2.16.0
 
+# System Monitoring
+psutil>=5.9.0
+
+# Static File Serving (for PNG images)
+aiofiles>=23.2.0
+
 # Additional utilities
 tqdm>=4.66.0
 click>=8.1.0
 rich>=13.5.0
+
+# Development and Testing
+pytest-timeout>=2.1.0
+coverage>=7.3.0
