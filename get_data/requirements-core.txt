@@ -1,0 +1,22 @@
+# Core Requirements for Himawari Satellite Data Processing
+# Minimal dependencies for data processing only
+
+# Core Scientific Computing
+numpy>=1.24.0
+pandas>=2.0.0
+xarray>=2023.1.0
+
+# Geospatial Processing
+pyproj>=3.5.0
+
+# Data Visualization
+matplotlib>=3.7.0
+
+# Satellite Data Access
+earthaccess>=0.8.0
+
+# File Processing
+netcdf4>=1.6.4
+
+# Utilities
+tqdm>=4.66.0
