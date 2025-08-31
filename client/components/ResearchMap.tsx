@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Parameter, TimeRange } from '@/types/research';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -21,10 +21,12 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
   
   const currentParam = availableParameters.find(p => p.id === parameter);
 
-  // Function to get the nearest hour timestamp for PNG filename
-  const getNearestHourTimestamp = (date: Date): string => {
-    const utcDate = new Date(date.getTime());
-    // Round down to nearest hour
+  // Memoize timestamp calculation to avoid infinite loops
+  const currentTimestamp = useMemo(() => {
+    if (parameter !== 'sst') return null;
+    
+    // 确保使用UTC时间并向下舍入到最近的整点
+    const utcDate = new Date(timeRange.start.getTime());
     utcDate.setUTCMinutes(0, 0, 0);
     
     // Format as YYYYMMDDHHMMSS for filename
@@ -33,19 +35,27 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
     const day = String(utcDate.getUTCDate()).padStart(2, '0');
     const hour = String(utcDate.getUTCHours()).padStart(2, '0');
     
-    return `${year}${month}${day}${hour}0000`;
-  };
+    const timestamp = `${year}${month}${day}${hour}0000`;
+    // console.log(`Input date: ${timeRange.start.toISOString()}`);
+    // console.log(`UTC date after rounding: ${utcDate.toISOString()}`);
+    console.log(`Generated timestamp: ${timestamp}`);
+    
+    return timestamp;
+  }, [parameter, timeRange.start]);
 
   useEffect(() => {
-    setIsLoading(true);
-    setImageError(false);
-    
-    if (parameter === 'sst') {
-      // For Sea Surface Temperature, try to load PNG image
-      const timestamp = getNearestHourTimestamp(timeRange.start);
-      const pngUrl = `http://localhost:8000/static/images/${timestamp}.png`;
+    if (parameter === 'sst' && currentTimestamp) {
+      const pngUrl = `http://localhost:8000/static/images/${currentTimestamp}.png`;
       
-      console.log(`Loading SST image for timestamp: ${timestamp}`);
+      // 避免重复加载相同的图片
+      if (imageUrl === pngUrl) {
+        return;
+      }
+      
+      setIsLoading(true);
+      setImageError(false);
+      
+      console.log(`Loading SST image for timestamp: ${currentTimestamp}`);
       console.log(`Image URL: ${pngUrl}`);
       
       // Check if image exists
@@ -55,7 +65,7 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
         setIsLoading(false);
       };
       img.onerror = () => {
-        console.warn(`PNG not found for ${timestamp}, using mock data`);
+        console.warn(`PNG not found for ${currentTimestamp}, using mock data`);
         setImageError(true);
         // Fallback to mock data
         const mockData = generateMockData(parameter, timeRange);
@@ -64,8 +74,9 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
         setIsLoading(false);
       };
       img.src = pngUrl;
-    } else {
+    } else if (parameter !== 'sst') {
       // For other parameters, use mock data
+      setIsLoading(true);
       const timer = setTimeout(() => {
         const mockData = generateMockData(parameter, timeRange);
         setDataPoints(mockData);
@@ -75,7 +86,7 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
       
       return () => clearTimeout(timer);
     }
-  }, [parameter, timeRange]);
+  }, [parameter, currentTimestamp]);
 
   const generateMockData = (param: string, range: TimeRange) => {
     // Mock data generation based on parameter type
@@ -117,7 +128,7 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
         <div className="absolute inset-0 w-full h-full">
           <img 
             src={imageUrl}
-            alt={`Sea Surface Temperature - ${getNearestHourTimestamp(timeRange.start)}`}
+            alt={`Sea Surface Temperature - ${currentTimestamp || 'loading'}`}
             className="w-full h-full object-cover rounded-lg"
             style={{ filter: 'contrast(1.1) brightness(1.1)' }}
           />
@@ -216,10 +227,10 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
             </>
           )}
         </Badge>
-        {imageUrl && parameter === 'sst' && (
+        {imageUrl && parameter === 'sst' && currentTimestamp && (
           <Badge className="bg-white/20 backdrop-blur text-white border-white/30">
             <div className="text-xs">
-              {new Date(`${getNearestHourTimestamp(timeRange.start).substring(0,4)}-${getNearestHourTimestamp(timeRange.start).substring(4,6)}-${getNearestHourTimestamp(timeRange.start).substring(6,8)}T${getNearestHourTimestamp(timeRange.start).substring(8,10)}:00:00Z`).toLocaleString()}
+              {new Date(`${currentTimestamp.substring(0,4)}-${currentTimestamp.substring(4,6)}-${currentTimestamp.substring(6,8)}T${currentTimestamp.substring(8,10)}:00:00Z`).toLocaleString()}
             </div>
           </Badge>
         )}

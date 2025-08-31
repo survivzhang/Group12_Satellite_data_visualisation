@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { 
@@ -23,6 +23,7 @@ interface TimelineSliderProps {
 export function TimelineSlider({ timeRange, onChange }: TimelineSliderProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentPosition, setCurrentPosition] = useState(0);
+  const lastTimeRef = useRef<number>(0);
   
   const granularityOptions = [
     { id: 'months', label: 'Months', duration: 30 * 24 * 60 * 60 * 1000 },
@@ -59,18 +60,26 @@ export function TimelineSlider({ timeRange, onChange }: TimelineSliderProps) {
   // Update time range based on position
   useEffect(() => {
     const currentTime = new Date(fixedStartDate.getTime() + (totalDuration * currentPosition) / 100);
+    const currentTimeMs = currentTime.getTime();
     
-    // Update the current time without changing the overall range
-    const windowSize = currentGranularity.duration;
-    const windowStart = new Date(currentTime.getTime() - windowSize / 2);
-    const windowEnd = new Date(currentTime.getTime() + windowSize / 2);
-    
-    onChange({
-      ...timeRange,
-      start: Math.max(windowStart.getTime(), fixedStartDate.getTime()) > fixedStartDate.getTime() ? windowStart : fixedStartDate,
-      end: Math.min(windowEnd.getTime(), fixedEndDate.getTime()) < fixedEndDate.getTime() ? windowEnd : fixedEndDate
-    });
-  }, [currentPosition, currentGranularity, totalDuration]);
+    // 只有当时间真正变化时才调用onChange（避免重复调用）
+    if (Math.abs(currentTimeMs - lastTimeRef.current) > 1000) { // 大于1秒差异
+      lastTimeRef.current = currentTimeMs;
+      
+      console.log(`Timeline position: ${currentPosition}%`);
+      console.log(`Current time calculated: ${currentTime.toISOString()}`);
+      
+      // For PNG display, we want the exact current time as the start time
+      const windowSize = currentGranularity.duration;
+      const windowEnd = new Date(currentTime.getTime() + windowSize / 2);
+      
+      onChange({
+        start: currentTime, // 使用确切的当前时间
+        end: Math.min(windowEnd.getTime(), fixedEndDate.getTime()) < fixedEndDate.getTime() ? windowEnd : fixedEndDate,
+        granularity: timeRange.granularity
+      });
+    }
+  }, [currentPosition, currentGranularity.duration, totalDuration, onChange]);
 
   const handleGranularityChange = (granularity: string) => {
     const option = granularityOptions.find(g => g.id === granularity);
