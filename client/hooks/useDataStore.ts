@@ -7,12 +7,45 @@ interface DataStore {
   isUpdating: boolean;
   missingFiles: number;
   updateData: () => Promise<void>;
+  systemStatus: any;
 }
+
+interface FileCheckResponse {
+  expected_files: number;
+  nc_files: {
+    existing: string[];
+    missing: string[];
+    corrupted: string[];
+  };
+  png_files: {
+    existing: string[];
+    missing: string[];
+  };
+  summary: {
+    total_expected: number;
+    nc_files: {
+      existing: number;
+      missing: number;
+      corrupted: number;
+      completion_rate: string;
+    };
+    png_files: {
+      existing: number;
+      missing: number;
+      completion_rate: string;
+    };
+  };
+  timestamp: string;
+}
+
+// API配置
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export function useDataStore(): DataStore {
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [missingFiles, setMissingFiles] = useState(0);
+  const [systemStatus, setSystemStatus] = useState(null);
 
   // Load initial data from localStorage
   useEffect(() => {
@@ -30,8 +63,51 @@ export function useDataStore(): DataStore {
     checkMissingFiles();
   }, []);
 
-  const checkMissingFiles = useCallback(() => {
-    // Simulate scanning local storage for missing data files
+  const checkMissingFiles = useCallback(async () => {
+    try {
+      const endTime = new Date('2025-03-01T12:00:00Z');
+      const startTime = new Date('2025-03-01T00:00:00Z');
+      
+      const response = await fetch(`${API_BASE_URL}/check-files`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          start_time: startTime.toISOString(),
+          end_time: endTime.toISOString(),
+          time_step_hours: 1,
+          check_nc: true,
+          check_png: true
+        })
+      });
+      
+      if (response.ok) {
+        const data: FileCheckResponse = await response.json();
+        
+        // 计算总的缺失文件数
+        const totalMissing = data.nc_files.missing.length + 
+                           data.nc_files.corrupted.length + 
+                           data.png_files.missing.length;
+        
+        setMissingFiles(totalMissing);
+        setLastUpdate(data.timestamp);
+        
+        console.log('File check completed:', data.summary);
+      } else {
+        console.error('File check failed:', response.statusText);
+        // 如果API失败，回退到模拟检查
+        simulateFileCheck();
+      }
+    } catch (error) {
+      console.error('Error checking files:', error);
+      // 如果网络错误，回退到模拟检查
+      simulateFileCheck();
+    }
+  }, []);
+  
+  const simulateFileCheck = useCallback(() => {
+    // 备用的模拟检查（当API不可用时）
     const expectedFiles = [
       'sst-data', 
       'chlorophyll-data', 
@@ -53,39 +129,149 @@ export function useDataStore(): DataStore {
     setIsUpdating(true);
     
     try {
-      // Simulate data fetching process
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // 首先检查文件完整性
+      await checkMissingFiles();
       
-      // Mock data files to be "fetched"
-      const dataFiles = [
-        { key: 'ningaloo-sst-data', data: generateMockData('sst') },
-        { key: 'ningaloo-chlorophyll-data', data: generateMockData('chlorophyll') },
-        { key: 'ningaloo-salinity-data', data: generateMockData('salinity') },
-        { key: 'ningaloo-bathymetry-data', data: generateMockData('bathymetry') }
-      ];
+      // 如果有缺失文件，自动触发修复
+      if (missingFiles > 0) {
+        console.log(`Found ${missingFiles} missing files. Starting auto repair...`);
+        
+        // 自动触发修复
+        await triggerAutoRepair();
+      }
       
-      // "Download" and store data files
-      dataFiles.forEach(file => {
-        localStorage.setItem(file.key, JSON.stringify(file.data));
-      });
+      // 获取系统状态
+      try {
+        const statusResponse = await fetch(`${API_BASE_URL}/system-status`);
+        if (statusResponse.ok) {
+          const status = await statusResponse.json();
+          setSystemStatus(status);
+          console.log('System status updated:', status);
+        }
+      } catch (statusError) {
+        console.warn('Could not fetch system status:', statusError);
+      }
       
-      // Update metadata
+      // 更新本地元数据
       const now = new Date().toISOString();
       const metadata = {
         lastUpdate: now,
-        filesCount: dataFiles.length,
-        totalSize: dataFiles.reduce((sum, file) => sum + JSON.stringify(file.data).length, 0)
+        lastCheck: now,
+        missingFiles: missingFiles
       };
       
       localStorage.setItem('ningaloo-research-data', JSON.stringify(metadata));
       setLastUpdate(now);
-      setMissingFiles(0);
       
     } catch (error) {
       console.error('Failed to update data:', error);
+      
+      // 如果API不可用，回退到模拟模式
+      await simulateDataUpdate();
     } finally {
       setIsUpdating(false);
     }
+  }, [checkMissingFiles, missingFiles]);
+
+  const triggerAutoRepair = useCallback(async () => {
+    try {
+      console.log('Triggering automatic file repair...');
+      
+      // 设置修复请求参数
+      const repairRequest = {
+        start_time: '2025-03-01T00:00:00',
+        end_time: '2025-03-01T12:00:00',
+        west_lon: 113.0,  // Ningaloo 区域
+        east_lon: 115.0,
+        south_lat: -24.0,
+        north_lat: -21.0,
+        time_step_hours: 1,
+        repair_nc: true,
+        repair_png: true
+      };
+
+      const response = await fetch(`${API_BASE_URL}/repair-files`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(repairRequest)
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Auto repair started:', result);
+        
+        // 轮询检查修复状态
+        if (result.task_id) {
+          await pollRepairStatus(result.task_id);
+        }
+      } else {
+        console.error('Auto repair failed:', response.statusText);
+      }
+    } catch (error) {
+      console.error('Error triggering auto repair:', error);
+    }
+  }, []);
+
+  const pollRepairStatus = useCallback(async (taskId: string) => {
+    const maxPolls = 30; // 最多轮询30次（约5分钟）
+    let pollCount = 0;
+    
+    const poll = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/status/${taskId}`);
+        if (response.ok) {
+          const status = await response.json();
+          console.log(`Repair status: ${status.status} - ${status.message}`);
+          
+          if (status.status === 'completed') {
+            console.log('Auto repair completed successfully!');
+            // 重新检查文件以更新状态
+            await checkMissingFiles();
+            return;
+          } else if (status.status === 'failed') {
+            console.error('Auto repair failed:', status.message);
+            return;
+          } else if (status.status === 'processing' && pollCount < maxPolls) {
+            // 继续轮询
+            setTimeout(poll, 10000); // 10秒后再次检查
+            pollCount++;
+          }
+        }
+      } catch (error) {
+        console.error('Error polling repair status:', error);
+      }
+    };
+    
+    poll();
+  }, [checkMissingFiles]);
+  
+  const simulateDataUpdate = useCallback(async () => {
+    // 备用的模拟更新（当API不可用时）
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    const dataFiles = [
+      { key: 'ningaloo-sst-data', data: generateMockData('sst') },
+      { key: 'ningaloo-chlorophyll-data', data: generateMockData('chlorophyll') },
+      { key: 'ningaloo-salinity-data', data: generateMockData('salinity') },
+      { key: 'ningaloo-bathymetry-data', data: generateMockData('bathymetry') }
+    ];
+    
+    dataFiles.forEach(file => {
+      localStorage.setItem(file.key, JSON.stringify(file.data));
+    });
+    
+    const now = new Date().toISOString();
+    const metadata = {
+      lastUpdate: now,
+      filesCount: dataFiles.length,
+      totalSize: dataFiles.reduce((sum, file) => sum + JSON.stringify(file.data).length, 0)
+    };
+    
+    localStorage.setItem('ningaloo-research-data', JSON.stringify(metadata));
+    setLastUpdate(now);
+    setMissingFiles(0);
   }, []);
 
   const generateMockData = (parameter: string) => {
@@ -137,6 +323,7 @@ export function useDataStore(): DataStore {
     lastUpdate,
     isUpdating,
     missingFiles,
-    updateData
+    updateData,
+    systemStatus
   };
 }

@@ -28,9 +28,9 @@ export default function NingalooResearchApp() {
     { id: '1', parameter: 'sst', title: 'Sea Surface Temperature' }
   ]);
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>({
-    start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-    end: new Date(),
-    granularity: 'days'
+    start: new Date('2025-03-01T00:00:00Z'),
+    end: new Date('2025-03-01T12:00:00Z'),
+    granularity: 'hours'
   });
   const [expandedParams, setExpandedParams] = useState(false);
   const [fullscreenMap, setFullscreenMap] = useState<string | null>(null);
