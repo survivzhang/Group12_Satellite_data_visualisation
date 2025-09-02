@@ -418,12 +418,12 @@ payload = {
 }
 
 output = wcs.getCoverage(**payload)
-filename = './sentinela_sst.nc'
+filename = 'sentinel3a/sst/nc/sentinela_sst.nc'
 with open(filename, 'wb') as f:
     f.write(output.read())
 
 # %%
-sentinela_sst_ds = xr.open_dataset('sentinela_sst.nc')
+sentinela_sst_ds = xr.open_dataset('sentinel3a/sst/nc/sentinela_sst.nc')
 print(np.nanmax(sentinela_sst_ds['copernicus_sentinel3a_slstr_l2p_sst_fullres']))
 sentinela_sst_ds
 
@@ -439,7 +439,7 @@ payload = {
 }
 
 output = wcs.getCoverage(**payload)
-filename = './sentinelb_sst.nc'
+filename = './sentinel3b/sst/nc/sentinelb_sst.nc'
 with open(filename, 'wb') as f:
     f.write(output.read())
 
@@ -463,12 +463,12 @@ payload = {
 }
 
 output = wcs.getCoverage(**payload)
-filename = './sentinela_chl.nc'
+filename = 'sentinel3a/chl/nc/sentinela_chl.nc'
 with open(filename, 'wb') as f:
     f.write(output.read())
 
 # %%
-sentinela_chl_ds = xr.open_dataset('sentinela_chl.nc')
+sentinela_chl_ds = xr.open_dataset(filename)
 print(np.nanmax(sentinela_chl_ds['copernicus_sentinel3a_olci_l2_chl_fullres']))
 sentinela_chl_ds
 
@@ -484,12 +484,12 @@ payload = {
 }
 
 output = wcs.getCoverage(**payload)
-filename = './sentinelb_chl.nc'
+filename = './sentinel3b/chl/nc/sentinelb_chl.nc'
 with open(filename, 'wb') as f:
     f.write(output.read())
 
 # %%
-sentinelb_chl_ds = xr.open_dataset('sentinelb_chl.nc')
+sentinelb_chl_ds = xr.open_dataset(filename)
 sentinelb_chl_ds
 print(np.nanmax(sentinelb_chl_ds['copernicus_sentinel3b_olci_l2_chl_fullres']))
 
@@ -540,10 +540,37 @@ for j in range(nframes, nrows*ncols):
 plt.tight_layout(); 
 # plt.show()
 
-plt.savefig(f"png/fig_sentinela_chl.png", dpi=150)   # 存到 png 文件夹里
+plt.savefig("sentinel3a/chl/png/fig_sentinela_chl.png", dpi=150)   # 存到 png 文件夹里
 plt.close()
+#单独绘制sentinela_chl每个时间片的代码#
+ds = sentinela_chl_ds
+var = list(ds.data_vars)[0]
+nframes = ds.sizes['time']
 
+save_dir = os.path.join("sentinel3a", "chl", "png")
+os.makedirs(save_dir, exist_ok=True)
 
+for i in range(nframes):
+    z = ds[var].isel(time=i)
+    tval = ds['time'].isel(time=i).values
+
+    # 文件名：用 "-" 代替 ":"，保证合法
+    fname = str(tval)[:16].replace(":", "-") + ".png"
+    save_path = os.path.join(save_dir, fname)
+
+    # 图标题：保持原始时间格式（带冒号）
+    title_str = str(tval)[:16]
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    im = ax.pcolormesh(ds['lon'], ds['lat'], z, cmap='viridis')
+    ax.set_title(title_str)
+    plt.colorbar(im, ax=ax)
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close(fig)
+
+#到这结束##
 # %%
 import os
 os.makedirs("png", exist_ok=True)
@@ -567,15 +594,86 @@ for j in range(nframes, nrows*ncols):
     ax[j].axis('off')
 
 plt.tight_layout()
-plt.savefig("png/sentinelb_sst_all.png", dpi=150)
+plt.savefig("sentinel3b/sst/png/fig_sentinelb_sst.png", dpi=150)
 plt.close()
 
+##单独绘制sentinelb_sst每个时间片的代码##
+ds = sentinelb_sst_ds
+var = list(ds.data_vars)[0]
+nframes = ds.sizes['time']
 
+# 目标目录（保持不变）
+save_dir = os.path.join("sentinel3b", "sst", "png")
+os.makedirs(save_dir, exist_ok=True)
 
+for i in range(nframes):
+    z    = ds[var].isel(time=i)
+    tval = ds['time'].isel(time=i).values
 
+    # 文件名：Windows 不允许 ":"，替换为 "-"
+    fname = str(tval)[:16].replace(":", "-") + ".png"
+    save_path = os.path.join(save_dir, fname)
 
+    # 图标题：保留冒号
+    title_str = str(tval)[:16]
 
+    # 单张绘制并保存
+    fig, ax = plt.subplots(figsize=(6, 5))
+    im = ax.pcolormesh(ds['lon'], ds['lat'], z, cmap='viridis')
+    ax.set_title(title_str)
+    plt.colorbar(im, ax=ax, orientation='vertical', fraction=0.046, pad=0.04)
 
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close(fig)
+
+##到这结束
+
+##单独绘制sentinela_sst每个时间片的代码##
+# -------- 1) Sentinel-3A SST --------
+ds = sentinela_sst_ds
+var = list(ds.data_vars)[0]
+save_dir = os.path.join("sentinel3a", "sst", "png")
+os.makedirs(save_dir, exist_ok=True)
+
+for i in range(ds.sizes['time']):
+    tval = ds['time'].isel(time=i).values
+    fname = str(tval)[:16].replace(":", "-") + ".png"   # 文件名用 - 代替 :
+    title = str(tval)[:16]                              # 标题保留 :
+    out = os.path.join(save_dir, fname)
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    im = ax.pcolormesh(ds['lon'], ds['lat'], ds[var].isel(time=i), cmap='viridis')
+    ax.set_title(title)
+    plt.colorbar(im, ax=ax)
+    plt.tight_layout()
+    plt.savefig(out, dpi=150)
+    plt.close(fig)
+##到此结束##
+
+##单独绘制sentinelb_chl每个时间片的代码##
+
+# -------- 2) Sentinel-3B CHL --------
+ds = sentinelb_chl_ds
+var = list(ds.data_vars)[0]
+save_dir = os.path.join("sentinel3b", "chl", "png")
+os.makedirs(save_dir, exist_ok=True)
+
+for i in range(ds.sizes['time']):
+    tval = ds['time'].isel(time=i).values
+    fname = str(tval)[:16].replace(":", "-") + ".png"
+    title = str(tval)[:16]
+    out = os.path.join(save_dir, fname)
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    im = ax.pcolormesh(ds['lon'], ds['lat'], ds[var].isel(time=i), cmap='viridis')
+    ax.set_title(title)
+    plt.colorbar(im, ax=ax)
+    plt.tight_layout()
+    plt.savefig(out, dpi=150)
+    plt.close(fig)
+
+##到此结束##
 # %%
 
 
