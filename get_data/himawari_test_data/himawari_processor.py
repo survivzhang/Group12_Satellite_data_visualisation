@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import matplotlib
-matplotlib.use('Agg')  # 使用非交互式后端，只生成文件不显示窗口
+matplotlib.use('Agg')  # Use non-interactive backend, only generate files without displaying windows
 import matplotlib.pyplot as plt
 from pyproj import Proj
 
@@ -424,15 +424,15 @@ def get_crop_indices(lon: np.ndarray, lat: np.ndarray,
 
 def merge_parts_to_single_nc(parts_dir: Path, merged_path: Path):
     """
-    合并 parts/ 目录下的所有裁剪后的 nc 文件为一个文件
+    Merge all cropped nc files in the parts/ directory into a single file
     
     Args:
-        parts_dir: 包含分片nc文件的目录
-        merged_path: 合并后文件的保存路径
+        parts_dir: Directory containing split nc files
+        merged_path: Path to save the merged file
     """
     import pandas as pd
     
-    # 找到所有裁剪后的 nc 文件
+    # Find all cropped nc files
     nc_files = sorted(parts_dir.glob("*.nc"))
     if not nc_files:
         print(f"[WARN] No files found in {parts_dir}")
@@ -440,12 +440,12 @@ def merge_parts_to_single_nc(parts_dir: Path, merged_path: Path):
     
     print(f"Found {len(nc_files)} files, merging...")
 
-    # 读取所有 nc 文件
+    # Read all nc files
     datasets = []
     for f in nc_files:
         try:
             ds = xr.open_dataset(f)
-            # 确保 time 是 datetime64
+            # Ensure time is datetime64
             if 'time' in ds:
                 ds['time'] = pd.to_datetime(ds['time'].values)
             datasets.append(ds)
@@ -457,22 +457,22 @@ def merge_parts_to_single_nc(parts_dir: Path, merged_path: Path):
         print("[ERROR] No valid datasets found to merge")
         return
     
-    # 按时间维度拼接
+    # Concatenate along time dimension
     try:
         merged_ds = xr.concat(datasets, dim="time")
         
-        # 保存为一个新的大 nc
+    # Save as a new large nc file
         merged_ds.to_netcdf(merged_path)
         print(f"[OK] Merged dataset saved to {merged_path}")
         
-        # 关闭所有小文件，释放内存
+    # Close all small files, free memory
         for ds in datasets:
             ds.close()
         merged_ds.close()
         
     except Exception as e:
         print(f"[ERROR] Failed to merge datasets: {e}")
-        # 清理打开的datasets
+    # Clean up opened datasets
         for ds in datasets:
             try:
                 ds.close()
@@ -482,30 +482,30 @@ def merge_parts_to_single_nc(parts_dir: Path, merged_path: Path):
 
 def analyze_merged_dataset(merged_path: Path):
     """
-    分析合并后的数据集
+    Analyze the merged dataset
     
     Args:
-        merged_path: 合并后数据集的路径
+        merged_path: Path to the merged dataset
     """
     if not merged_path.exists():
         print(f"[ERROR] Merged file not found: {merged_path}")
         return
     
     try:
-        # 读取合并后的文件
+    # Read the merged file
         ds = xr.open_dataset(merged_path)
         
         print("=== Dataset Analysis ===")
         print(f"Data variables: {list(ds.data_vars.keys())}")
         
-        # 获取海表温度数据
+    # Get sea surface temperature data
         if "sea_surface_temperature" in ds.data_vars:
             sst = ds["sea_surface_temperature"]
             print(f"SST shape: {sst.shape}")
             print(f"SST dimensions: {sst.dims}")
             print(f"SST data type: {sst.dtype}")
             
-            # 统计信息
+            # Statistics
             valid_data = sst.values[~np.isnan(sst.values)]
             if len(valid_data) > 0:
                 print(f"Valid data points: {len(valid_data)}")
@@ -514,12 +514,12 @@ def analyze_merged_dataset(merged_path: Path):
             else:
                 print("No valid SST data found")
         
-        # 获取时间坐标
+    # Get time coordinate
         if "time" in ds.coords:
             print(f"Time coordinate: {ds['time'].values}")
             print(f"Time range: {ds['time'].values[0]} to {ds['time'].values[-1]}")
         
-        # 获取空间坐标
+    # Get spatial coordinates
         if "lon" in ds.coords and "lat" in ds.coords:
             lon_range = (float(ds['lon'].min()), float(ds['lon'].max()))
             lat_range = (float(ds['lat'].min()), float(ds['lat'].max()))
@@ -532,9 +532,9 @@ def analyze_merged_dataset(merged_path: Path):
         print(f"[ERROR] Failed to analyze dataset: {e}")
 
 
-# 添加一个便捷的工具类来处理完整的工作流
+# Add a convenient utility class to handle the complete workflow
 class HimawariWorkflow:
-    """完整的Himawari数据处理工作流"""
+    """Complete Himawari data processing workflow"""
     
     def __init__(self, base_dir: str = "data/himawari_l3c"):
         self.processor = HimawariDataProcessor(base_dir)
@@ -549,18 +549,18 @@ class HimawariWorkflow:
         netrc_path: Path = Path(".netrc")
     ):
         """
-        运行完整的数据处理工作流：查询 -> 下载 -> 处理 -> 合并 -> 分析
+        Run the complete data processing workflow: query -> download -> process -> merge -> analyze
         
         Args:
-            timelims: 时间范围
-            lonlims: 经度范围  
-            latlims: 纬度范围
-            tstep: 时间步长（秒）
-            netrc_path: .netrc文件路径
+            timelims: Time range
+            lonlims: Longitude range  
+            latlims: Latitude range
+            tstep: Time step (seconds)
+            netrc_path: Path to .netrc file
         """
         print("=== Himawari Data Processing Workflow ===")
         
-        # 步骤1: 查询可用数据
+        # Step 1: Query available data
         print("\n1. Querying available data...")
         try:
             manifest = self.processor.query_data_manifest(
@@ -569,21 +569,18 @@ class HimawariWorkflow:
                 latlims=latlims,
                 netrc_path=netrc_path
             )
-            
             if len(manifest) == 0:
                 print("No data available for the specified time range and region")
                 return
-                
-            # 保存清单
+            # Save manifest
             manifest_path = self.processor.base_dir / "data_manifest.csv"
             manifest.to_csv(manifest_path, index=False)
             print(f"Saved data manifest to: {manifest_path}")
-            
         except Exception as e:
             print(f"Failed to query data: {e}")
             return
         
-        # 步骤2: 处理时间序列数据
+        # Step 2: Process time series data
         print("\n2. Processing time series data...")
         try:
             self.processor.process_time_series(
@@ -597,7 +594,7 @@ class HimawariWorkflow:
             print(f"Failed to process time series: {e}")
             return
         
-        # 步骤3: 合并所有处理后的文件
+        # Step 3: Merge all processed files
         print("\n3. Merging processed files...")
         try:
             merge_parts_to_single_nc(self.processor.parts_dir, self.merged_path)
@@ -605,7 +602,7 @@ class HimawariWorkflow:
             print(f"Failed to merge files: {e}")
             return
         
-        # 步骤4: 分析合并后的数据集
+        # Step 4: Analyze merged dataset
         print("\n4. Analyzing merged dataset...")
         try:
             analyze_merged_dataset(self.merged_path)
@@ -619,7 +616,7 @@ class HimawariWorkflow:
         print(f"- Merged dataset: {self.merged_path}")
     
     def quick_analysis(self):
-        """快速分析已存在的合并数据集"""
+        """Quickly analyze the existing merged dataset"""
         if self.merged_path.exists():
             analyze_merged_dataset(self.merged_path)
         else:
@@ -627,20 +624,21 @@ class HimawariWorkflow:
             print("Run the complete workflow first.")
 
 
-# 便捷函数
+
+# Convenience function
 def run_himawari_workflow_example():
-    """运行Himawari数据处理的示例工作流"""
+    """Run an example Himawari data processing workflow"""
     
-    # 配置参数
+    # Configuration parameters
     timelims = ("2025-03-01T00:00:00", "2025-03-01T12:00:00")
-    lonlims = (111, 116)  # 西澳大利亚地区
+    lonlims = (111, 116)  # Western Australia region
     latlims = (-24.5, -19.5)
-    tstep = 3600  # 1小时间隔
+    tstep = 3600  # 1 hour interval
     
-    # 创建工作流实例
+    # Create workflow instance
     workflow = HimawariWorkflow()
     
-    # 运行完整工作流
+    # Run complete workflow
     workflow.run_complete_workflow(
         timelims=timelims,
         lonlims=lonlims,
@@ -650,14 +648,14 @@ def run_himawari_workflow_example():
 
 
 class HimawariFileMonitor:
-    """Himawari文件完整性监控和修复服务"""
+    """Himawari file integrity monitoring and repair service"""
     
     def __init__(self, processor: HimawariDataProcessor):
         """
-        初始化文件监控器
+        Initialize file monitor
         
         Args:
-            processor: HimawariDataProcessor实例
+            processor: HimawariDataProcessor instance
         """
         self.processor = processor
         self.base_dir = processor.base_dir
@@ -672,24 +670,24 @@ class HimawariFileMonitor:
         check_png: bool = True
     ) -> dict:
         """
-        检查指定时间范围内的文件完整性
+        Check file integrity within the specified time range
         
         Args:
-            timelims: 时间范围 (start, end)
-            tstep: 时间步长（秒）
-            check_nc: 是否检查nc文件
-            check_png: 是否检查png文件
-            
+            timelims: Time range (start, end)
+            tstep: Time step (seconds)
+            check_nc: Whether to check nc files
+            check_png: Whether to check png files
+        
         Returns:
-            包含检查结果的字典
+            Dictionary containing check results
         """
         print("=== Checking File Completeness ===")
         
-        # 生成期望的时间序列
+    # Generate expected time series
         dtlims = (np.datetime64(timelims[0]), np.datetime64(timelims[1]))
         dtrange = np.arange(dtlims[0], dtlims[1], np.timedelta64(tstep, 's'))
         
-        # 考虑处理延迟
+    # Consider processing delay
         now_utc = np.datetime64(pd.Timestamp.utcnow().to_pydatetime())
         safe_latest = now_utc - np.timedelta64(4, 'h')
         dtrange = dtrange[dtrange <= safe_latest]
@@ -714,23 +712,23 @@ class HimawariFileMonitor:
             'summary': {}
         }
         
-        # 检查nc文件
+    # Check nc files
         if check_nc:
             print("\nChecking NC files...")
             results['nc_files'] = self._check_nc_files(expected_times)
             
-        # 检查png文件
+    # Check png files
         if check_png:
             print("\nChecking PNG files...")
             results['png_files'] = self._check_png_files(expected_times)
             
-        # 生成摘要
+    # Generate summary
         results['summary'] = self._generate_summary(results)
         
         return results
     
     def _check_nc_files(self, expected_times: List[str]) -> dict:
-        """检查nc文件的存在性和完整性"""
+        """Check existence and integrity of nc files"""
         nc_results = {
             'existing': [],
             'missing': [],
@@ -741,10 +739,10 @@ class HimawariFileMonitor:
             nc_path = self.parts_dir / f"{time_str}.nc"
             
             if nc_path.exists():
-                # 检查文件是否可以正常打开
+                # Check if file can be opened normally
                 try:
                     with xr.open_dataset(nc_path) as ds:
-                        # 基本完整性检查
+                        # Basic integrity check
                         if 'sea_surface_temperature' in ds.data_vars:
                             nc_results['existing'].append(time_str)
                             print(f"✓ {time_str}.nc - OK")
@@ -761,7 +759,7 @@ class HimawariFileMonitor:
         return nc_results
     
     def _check_png_files(self, expected_times: List[str]) -> dict:
-        """检查png文件的存在性"""
+        """Check existence of png files"""
         png_results = {
             'existing': [],
             'missing': []
@@ -780,15 +778,15 @@ class HimawariFileMonitor:
         return png_results
     
     def _generate_summary(self, results: dict) -> dict:
-        """生成检查结果摘要"""
+        """Generate summary of check results"""
         total_expected = results['expected_files']
         
-        # NC文件统计
+    # NC file statistics
         nc_existing = len(results['nc_files']['existing'])
         nc_missing = len(results['nc_files']['missing'])
         nc_corrupted = len(results['nc_files']['corrupted'])
         
-        # PNG文件统计
+    # PNG file statistics
         png_existing = len(results['png_files']['existing'])
         png_missing = len(results['png_files']['missing'])
         
@@ -827,16 +825,16 @@ class HimawariFileMonitor:
         max_concurrent: int = 3
     ):
         """
-        修复丢失和损坏的文件
+        Repair missing and corrupted files
         
         Args:
-            check_results: check_file_completeness的结果
-            lonlims: 经度范围
-            latlims: 纬度范围
-            netrc_path: .netrc文件路径
-            repair_nc: 是否修复nc文件
-            repair_png: 是否修复png文件
-            max_concurrent: 最大并发下载数
+            check_results: Result from check_file_completeness
+            lonlims: Longitude range
+            latlims: Latitude range
+            netrc_path: Path to .netrc file
+            repair_nc: Whether to repair nc files
+            repair_png: Whether to repair png files
+            max_concurrent: Maximum concurrent downloads
         """
         print("\n=== Starting File Repair ===")
         
@@ -845,7 +843,7 @@ class HimawariFileMonitor:
         png_repaired_count = 0
         png_failed_count = 0
         
-        # 第1步：修复NC文件（下载和处理）
+    # Step 1: Repair NC files (download and process)
         if repair_nc:
             nc_files_to_repair = []
             nc_files_to_repair.extend(check_results['nc_files']['missing'])
@@ -855,17 +853,17 @@ class HimawariFileMonitor:
             if nc_files_to_repair:
                 print(f"\n--- Step 1: Repairing {len(nc_files_to_repair)} NC files ---")
                 
-                # 确保登录
+                # Ensure login
                 self.processor.ensure_earthdata_login(netrc_path)
                 
                 for i, time_str in enumerate(nc_files_to_repair, 1):
                     print(f"[{i}/{len(nc_files_to_repair)}] Downloading and processing {time_str}...")
                     
                     try:
-                        # 转换时间字符串为datetime64
+                        # Convert time string to datetime64
                         dt = np.datetime64(pd.to_datetime(time_str, format="%Y%m%d%H%M%S"))
                         
-                        # 处理单个时间步（会同时下载NC和生成PNG）
+                        # Process single time step (will download NC and generate PNG)
                         self.processor._process_single_timestamp(dt, lonlims, latlims)
                         
                         nc_repaired_count += 1
@@ -877,9 +875,9 @@ class HimawariFileMonitor:
             else:
                 print("--- Step 1: No NC files need repair ---")
         
-        # 第2步：修复PNG文件（基于已存在的NC文件）
+    # Step 2: Repair PNG files (based on existing NC files)
         if repair_png:
-            # 找出缺少PNG但有NC文件的时间点
+            # Find time points missing PNG but with existing NC file
             png_only_repairs = [t for t in check_results['png_files']['missing'] 
                              if t in check_results['nc_files']['existing']]
             
@@ -904,13 +902,11 @@ class HimawariFileMonitor:
         print(f"Total operations: {nc_repaired_count + png_repaired_count} successful, {nc_failed_count + png_failed_count} failed")
     
     def _regenerate_png(self, time_str: str):
-        """从已存在的nc文件重新生成PNG"""
+        """Regenerate PNG from existing nc file"""
         nc_path = self.parts_dir / f"{time_str}.nc"
-        
         if not nc_path.exists():
             raise FileNotFoundError(f"NC file not found: {nc_path}")
-            
-        # 读取nc文件并生成可视化
+        # Read nc file and generate visualization
         with xr.open_dataset(nc_path) as ds:
             sst_name = self.processor._find_sst_variable(ds)
             time_name = self.processor._pick_coord_name(ds, ["time", "t"])
@@ -923,18 +919,18 @@ class HimawariFileMonitor:
         latlims: Tuple[float, float],
         tstep: int = 3600,
         netrc_path: Path = Path(".netrc"),
-        check_interval: int = 3600  # 检查间隔（秒）
+        check_interval: int = 3600  # Check interval (seconds)
     ):
         """
-        自动修复服务 - 定期检查并修复丢失的文件
+        Auto repair service - periodically check and repair missing files
         
         Args:
-            timelims: 时间范围
-            lonlims: 经度范围
-            latlims: 纬度范围
-            tstep: 时间步长
-            netrc_path: .netrc文件路径
-            check_interval: 检查间隔（秒）
+            timelims: Time range
+            lonlims: Longitude range
+            latlims: Latitude range
+            tstep: Time step
+            netrc_path: Path to .netrc file
+            check_interval: Check interval (seconds)
         """
         print("=== Starting Auto Repair Service ===")
         print(f"Check interval: {check_interval} seconds")
@@ -944,13 +940,13 @@ class HimawariFileMonitor:
             while True:
                 print(f"\n[{pd.Timestamp.now()}] Running file completeness check...")
                 
-                # 检查文件完整性
+                # Check file integrity
                 results = self.check_file_completeness(
                     timelims=timelims,
                     tstep=tstep
                 )
                 
-                # 如果有丢失的文件，进行修复
+                # If there are missing files, repair them
                 missing_nc = len(results['nc_files']['missing'])
                 corrupted_nc = len(results['nc_files']['corrupted'])
                 missing_png = len(results['png_files']['missing'])
@@ -974,15 +970,16 @@ class HimawariFileMonitor:
             print("\n=== Auto Repair Service Stopped ===")
 
 
-def create_file_monitor(base_dir: str = "data/himawari_l3c") -> HimawariFileMonitor:
+def create_file_monitor(base_dir
+                        : str = "data/himawari_l3c") -> HimawariFileMonitor:
     """
-    创建文件监控器的便捷函数
+    Convenience function to create a file monitor
     
     Args:
-        base_dir: 数据目录
-        
+        base_dir: Data directory
+    
     Returns:
-        HimawariFileMonitor实例
+        HimawariFileMonitor instance
     """
     processor = HimawariDataProcessor(base_dir)
     return HimawariFileMonitor(processor)
