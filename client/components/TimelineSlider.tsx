@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { 
@@ -23,6 +23,7 @@ interface TimelineSliderProps {
 export function TimelineSlider({ timeRange, onChange }: TimelineSliderProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentPosition, setCurrentPosition] = useState(0);
+  const lastTimeRef = useRef<number>(0);
   
   const granularityOptions = [
     { id: 'months', label: 'Months', duration: 30 * 24 * 60 * 60 * 1000 },
@@ -33,9 +34,9 @@ export function TimelineSlider({ timeRange, onChange }: TimelineSliderProps) {
 
   const currentGranularity = granularityOptions.find(g => g.id === timeRange.granularity) || granularityOptions[2];
   
-  // Fixed date range: August 1-7, 2025
-  const fixedStartDate = new Date(2025, 7, 1); // August 1, 2025 (month is 0-indexed)
-  const fixedEndDate = new Date(2025, 7, 7, 23, 59, 59); // August 7, 2025 end of day
+  // Fixed date range: March 1, 2025 (12 hours for testing)
+  const fixedStartDate = new Date('2025-03-01T00:00:00Z'); // March 1, 2025 00:00 UTC
+  const fixedEndDate = new Date('2025-03-01T12:00:00Z'); // March 1, 2025 12:00 UTC
   const totalDuration = fixedEndDate.getTime() - fixedStartDate.getTime();
 
   // Auto-play functionality
@@ -59,18 +60,26 @@ export function TimelineSlider({ timeRange, onChange }: TimelineSliderProps) {
   // Update time range based on position
   useEffect(() => {
     const currentTime = new Date(fixedStartDate.getTime() + (totalDuration * currentPosition) / 100);
+    const currentTimeMs = currentTime.getTime();
     
-    // Update the current time without changing the overall range
-    const windowSize = currentGranularity.duration;
-    const windowStart = new Date(currentTime.getTime() - windowSize / 2);
-    const windowEnd = new Date(currentTime.getTime() + windowSize / 2);
-    
-    onChange({
-      ...timeRange,
-      start: Math.max(windowStart.getTime(), fixedStartDate.getTime()) > fixedStartDate.getTime() ? windowStart : fixedStartDate,
-      end: Math.min(windowEnd.getTime(), fixedEndDate.getTime()) < fixedEndDate.getTime() ? windowEnd : fixedEndDate
-    });
-  }, [currentPosition, currentGranularity, totalDuration]);
+    // 只有当时间真正变化时才调用onChange（避免重复调用）
+    if (Math.abs(currentTimeMs - lastTimeRef.current) > 1000) { // 大于1秒差异
+      lastTimeRef.current = currentTimeMs;
+      
+      console.log(`Timeline position: ${currentPosition}%`);
+      console.log(`Current time calculated: ${currentTime.toISOString()}`);
+      
+      // For PNG display, we want the exact current time as the start time
+      const windowSize = currentGranularity.duration;
+      const windowEnd = new Date(currentTime.getTime() + windowSize / 2);
+      
+      onChange({
+        start: currentTime, // 使用确切的当前时间
+        end: Math.min(windowEnd.getTime(), fixedEndDate.getTime()) < fixedEndDate.getTime() ? windowEnd : fixedEndDate,
+        granularity: timeRange.granularity
+      });
+    }
+  }, [currentPosition, currentGranularity.duration, totalDuration, onChange]);
 
   const handleGranularityChange = (granularity: string) => {
     const option = granularityOptions.find(g => g.id === granularity);
@@ -153,12 +162,19 @@ export function TimelineSlider({ timeRange, onChange }: TimelineSliderProps) {
               {formatDateRange()}
             </div>
             <div className="text-sm text-slate-500">
-              Viewing {currentGranularity.label.toLowerCase()} resolution
+              Viewing {currentGranularity.label.toLowerCase()} resolution • March 1, 2025 (Local Time)
             </div>
           </div>
         </div>
         <Badge variant="outline" className="bg-blue-50 border-blue-200 text-blue-800">
-          Day {Math.floor(currentPosition / (100/7)) + 1} of 7
+          {(() => {
+            const currentTime = getCurrentDateTime();
+            const startLocal = new Date('2025-03-01T00:00:00Z');
+            const endLocal = new Date('2025-03-01T12:00:00Z');
+            const totalHours = 12;
+            const currentHour = Math.floor((currentTime.getTime() - fixedStartDate.getTime()) / (1000 * 60 * 60)) + 1;
+            return `Hour ${Math.min(currentHour, totalHours)} of ${totalHours}`;
+          })()}
         </Badge>
       </div>
 
@@ -179,13 +195,16 @@ export function TimelineSlider({ timeRange, onChange }: TimelineSliderProps) {
           
           {/* Timeline markers */}
           <div className="absolute -bottom-6 left-0 right-0 flex justify-between text-xs text-slate-500">
-            <span>Aug 1</span>
-            <span>Aug 2</span>
-            <span>Aug 3</span>
-            <span>Aug 4</span>
-            <span>Aug 5</span>
-            <span>Aug 6</span>
-            <span>Aug 7</span>
+            {Array.from({length: 7}, (_, i) => {
+              const utcTime = new Date('2025-03-01T00:00:00Z');
+              utcTime.setUTCHours(i * 2); // 每2小时一个标记
+              const localTime = utcTime.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: false 
+              });
+              return <span key={i}>{localTime}</span>;
+            })}
           </div>
         </div>
 
