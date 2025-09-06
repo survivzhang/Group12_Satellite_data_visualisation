@@ -22,7 +22,7 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
 
   // Memoize timestamp calculation to avoid infinite loops
   const currentTimestamp = useMemo(() => {
-    if (parameter !== 'sst') return null;
+    if (parameter !== 'ssth') return null;
     
     // 确保使用UTC时间并向下舍入到最近的整点
     const utcDate = new Date(timeRange.start.getTime());
@@ -43,7 +43,7 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
   }, [parameter, timeRange.start]);
 
   useEffect(() => {
-    if (parameter === 'sst' && currentTimestamp) {
+    if (parameter === 'ssth' && currentTimestamp) {
       const pngUrl = `http://localhost:8000/static/images/${currentTimestamp}.png`;
       
       // 避免重复加载相同的图片
@@ -54,7 +54,7 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
       setIsLoading(true);
       setImageError(false);
       
-      console.log(`Loading SST image for timestamp: ${currentTimestamp}`);
+      console.log(`Loading SSTH image for timestamp: ${currentTimestamp}`);
       console.log(`Image URL: ${pngUrl}`);
       
       // Check if image exists
@@ -71,7 +71,7 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
       };
       img.src = pngUrl;
     } else {
-      // For non-SST parameters, show placeholder
+      // For non-ssth parameters, show placeholder
       setIsLoading(false);
       setImageUrl(null);
       setImageError(false);
@@ -91,7 +91,7 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
   return (
     <div className={`relative ${isFullscreen ? 'h-full' : 'h-96'} bg-gradient-to-br from-blue-900 via-blue-700 to-teal-600 rounded-lg overflow-hidden`}>
       {/* Show PNG image for SST, otherwise show placeholder */}
-      {imageUrl && parameter === 'sst' ? (
+      {imageUrl && parameter === 'ssth' ? (
         <div className="absolute inset-0 w-full h-full">
           <img 
             src={imageUrl}
@@ -107,10 +107,10 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
         <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-600 to-slate-800">
           <div className="text-center text-white/80">
             <div className="text-lg font-medium mb-2">
-              {parameter === 'sst' && imageError ? 'Image not available' : `${currentParam?.name} Data`}
+              {parameter === 'ssth' && imageError ? 'Image not available' : `${currentParam?.name} Data`}
             </div>
             <div className="text-sm opacity-75">
-              {parameter === 'sst' && imageError 
+              {parameter === 'ssth' && imageError 
                 ? `No satellite data for ${currentTimestamp}`
                 : 'Visualization coming soon'
               }
@@ -128,7 +128,7 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
           </div>
         </Badge>
         <Badge className="bg-white/20 backdrop-blur text-white border-white/30">
-          {imageUrl && parameter === 'sst' ? (
+          {imageUrl && parameter === 'ssth' ? (
             <>
               <ImageIcon className="h-3 w-3 mr-1" />
               Satellite Image
@@ -136,11 +136,11 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
           ) : (
             <>
               <MapPin className="h-3 w-3 mr-1" />
-              {parameter === 'sst' ? 'No data available' : 'Coming soon'}
+              {parameter === 'ssth' ? 'No data available' : 'Coming soon'}
             </>
           )}
         </Badge>
-        {imageUrl && parameter === 'sst' && currentTimestamp && (
+        {imageUrl && parameter === 'ssth' && currentTimestamp && (
           <Badge className="bg-white/20 backdrop-blur text-white border-white/30">
             <div className="text-xs">
               {new Date(`${currentTimestamp.substring(0,4)}-${currentTimestamp.substring(4,6)}-${currentTimestamp.substring(6,8)}T${currentTimestamp.substring(8,10)}:00:00Z`).toLocaleString()}

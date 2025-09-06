@@ -25,7 +25,7 @@ import { Parameter, TimeRange, MapInstance } from '@/types/research';
 
 export default function NingalooResearchApp() {
   const [mapInstances, setMapInstances] = useState<MapInstance[]>([
-    { id: '1', parameter: 'sst', title: 'Sea Surface Temperature' }
+    { id: '1', parameter: 'ssth', title: 'Sea Surface Temperature (Himawari)' }
   ]);
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>({
     start: new Date('2025-03-01T00:00:00Z'),
@@ -39,32 +39,64 @@ export default function NingalooResearchApp() {
 
   const availableParameters: Parameter[] = [
     { 
-      id: 'sst', 
-      name: 'Sea Surface Temperature', 
+      id: 'ssth', 
+      name: 'Sea Surface Temperature (Himawari) ', 
       unit: '°C', 
       color: '#ef4444',
       icon: <Thermometer className="h-4 w-4" />
     },
     { 
-      id: 'chlorophyll', 
-      name: 'Chlorophyll-a Concentration', 
-      unit: 'mg/m³', 
+      id: 'sst-s3a',
+      name: 'Sea Surface Temperature (Sentinel-3A)',
+      unit: '°C',
+      color: '#ef4444',
+      icon: <Thermometer className="h-4 w-4" />
+    },
+    { 
+      id: 'sst-s3b',
+      name: 'Sea Surface Temperature (Sentinel-3B)',
+      unit: '°C',
+      color: '#ef4444',
+      icon: <Thermometer className="h-4 w-4" />
+    },
+    { 
+      id: 'chl-s3a',
+      name: 'Chlorophyll-a (Sentinel-3A)',
+      unit: 'mg/m³',
       color: '#22c55e',
       icon: <Activity className="h-4 w-4" />
     },
     { 
-      id: 'salinity', 
-      name: 'Sea Surface Salinity', 
-      unit: 'PSU', 
-      color: '#3b82f6',
-      icon: <Waves className="h-4 w-4" />
+      id: 'chl-s3b',
+      name: 'Chlorophyll-a (Sentinel-3B)',
+      unit: 'mg/m³',
+      color: '#22c55e',
+      icon: <Activity className="h-4 w-4" />
     },
+  
+    // ✅ Sentinel-2（A/B ；prodcut L2A， val-B02）
     { 
-      id: 'bathymetry', 
-      name: 'Bathymetry', 
-      unit: 'm', 
+      id: 'b02-s2a',
+      name: 'B02 Reflectance (Sentinel-2A L2A)',
+      unit: 'reflectance',
       color: '#8b5cf6',
       icon: <Eye className="h-4 w-4" />
+    },
+    { 
+      id: 'b02-s2b',
+      name: 'B02 Reflectance (Sentinel-2B L2A)',
+      unit: 'reflectance',
+      color: '#8b5cf6',
+      icon: <Eye className="h-4 w-4" />
+    },
+  
+    // ✅ SWOT SSH（SWOT_L3_LR_SSH，变量：ssha_filtered/ugos_filtered/vgos_filtered）
+    { 
+      id: 'ssha-swot',
+      name: 'Sea Surface Height Anomaly (SWOT, ssha_filtered)',
+      unit: 'm',
+      color: '#3b82f6',
+      icon: <Waves className="h-4 w-4" />
     }
   ];
 
@@ -196,7 +228,7 @@ export default function NingalooResearchApp() {
         <div className={`flex justify-center ${fullscreenMap ? 'hidden' : ''}`}>
           <Button 
             variant="outline"
-            onClick={() => addMapInstance('sst')}
+            onClick={() => addMapInstance('ssth')}
             className="border-dashed border-2 border-slate-300 hover:border-blue-500 hover:bg-blue-50"
           >
             <Plus className="h-4 w-4 mr-2" />
