@@ -2,54 +2,60 @@
 
 This module provides tools for downloading, processing, and serving Himawari-9 satellite sea surface temperature data with automatic file monitoring and repair capabilities.
 
-## ✨ 主要功能
 
-- 🛰️ **卫星数据处理**: 自动下载和处理Himawari-9海表温度数据
-- 🖼️ **可视化生成**: 自动生成PNG图像用于前端显示
-- 🔍 **文件监控**: 检查数据完整性，识别缺失和损坏的文件
-- 🔧 **自动修复**: 智能修复缺失的NC和PNG文件
-- 🌐 **API服务**: FastAPI后端服务，支持前端集成
-- ⚡ **实时更新**: 支持前端Timeline的实时PNG图像显示
+## ✨ Main Features
 
-## 📁 文件结构
+- 🛰️ **Satellite Data Processing**: Automatically download and process Himawari-9 sea surface temperature data
+- 🖼️ **Visualization Generation**: Automatically generate PNG images for frontend display
+- 🔍 **File Monitoring**: Check data integrity, identify missing and corrupted files
+- 🔧 **Automatic Repair**: Intelligently repair missing NC and PNG files
+- 🌐 **API Service**: FastAPI backend service, supports frontend integration
+- ⚡ **Real-time Updates**: Supports real-time PNG image display for frontend Timeline
+
+
+## 📁 File Structure
 
 ```
 himawari_test_data/
-├── himawari_processor.py        # 核心数据处理类
-├── api_example.py              # FastAPI后端API
-├── data/                       # 数据目录
+├── himawari_processor.py        # Core data processing class
+├── api_example.py               # FastAPI backend API
+├── data/                        # Data directory
 │   └── himawari_l3c/
-│       ├── parts/              # 处理后的NC文件
-│       ├── png/                # 生成的PNG可视化
-│       └── temp/               # 临时文件
-└── README.md                   # 本文件
+│       ├── parts/               # Processed NC files
+│       ├── png/                 # Generated PNG visualizations
+│       └── temp/                # Temporary files
+└── README.md                    # This file
 ```
 
-## 🚀 快速开始
 
-### 1. 环境准备
+## 🚀 Quick Start
+
+### 1. Environment Setup
 
 ```bash
-# 创建虚拟环境
+
+# Create virtual environment
 python -m venv venv
 
-# 激活虚拟环境
+# Activate virtual environment
 # Windows:
 venv\Scripts\activate
 # macOS/Linux:
 source venv/bin/activate
 
-# 安装依赖
-# 最小依赖（仅数据处理）
+
+# Install dependencies
+# Minimal dependencies (data processing only)
 pip install -r ../requirements-core.txt
 
-# 完整依赖（包括后端API和前端集成）
+# Full dependencies (including backend API and frontend integration)
 pip install -r ../requirements.txt
 ```
 
-### 2. 配置认证
 
-创建 `.netrc` 文件在项目根目录：
+### 2. Configure Authentication
+
+Create a `.netrc` file in the project root directory:
 
 ```
 machine urs.earthdata.nasa.gov
@@ -57,50 +63,52 @@ machine urs.earthdata.nasa.gov
   password YOUR_PASSWORD
 ```
 
-> 💡 需要在 [NASA Earthdata](https://urs.earthdata.nasa.gov/) 注册账号
+> 💡 You need to register an account at [NASA Earthdata](https://urs.earthdata.nasa.gov/)
 
-### 3. 启动后端API
+
+### 3. Start Backend API
 
 ```bash
-# 开发模式（推荐）
+# Development mode (recommended)
 python api_example.py
 
-# 或使用uvicorn
+# Or use uvicorn
 uvicorn api_example:app --reload --host 0.0.0.0 --port 8000
 ```
 
-API服务启动后：
-- 🌐 API根路径: http://localhost:8000
-- 📚 自动文档: http://localhost:8000/docs
-- 🖼️ 静态图片: http://localhost:8000/static/images/
+After the API service starts:
+- 🌐 API root: http://localhost:8000
+- 📚 Auto docs: http://localhost:8000/docs
+- 🖼️ Static images: http://localhost:8000/static/images/
 
 
-## 📡 API端点
 
-### 基础信息
-- `GET /` - API信息和端点列表
-- `GET /health` - 健康检查
+## 📡 API Endpoints
 
-### 数据处理
-- `POST /query-data` - 查询可用数据清单
-- `POST /process-data` - 开始数据处理（后台任务）
-- `GET /status/{task_id}` - 查询处理任务状态
+### Basic Info
+- `GET /` - API info and endpoint list
+- `GET /health` - Health check
 
-### 文件管理
-- `GET /files` - 列出已处理的NC文件
-- `GET /visualizations` - 列出生成的PNG可视化
-- `GET /static/images/{filename}` - 获取PNG图片（静态文件服务）
+### Data Processing
+- `POST /query-data` - Query available data list
+- `POST /process-data` - Start data processing (background task)
+- `GET /status/{task_id}` - Query processing task status
 
-### 监控和修复
-- `POST /check-files` - 检查文件完整性
-- `POST /repair-files` - 修复缺失文件（后台任务）
-- `POST /auto-monitor-repair` - 自动监控并修复
-- `GET /system-status` - 获取系统状态和健康信息
+### File Management
+- `GET /files` - List processed NC files
+- `GET /visualizations` - List generated PNG visualizations
+- `GET /static/images/{filename}` - Get PNG image (static file service)
 
-### 前端集成示例
+### Monitoring and Repair
+- `POST /check-files` - Check file integrity
+- `POST /repair-files` - Repair missing files (background task)
+- `POST /auto-monitor-repair` - Auto monitor and repair
+- `GET /system-status` - Get system status and health info
+
+### Frontend Integration Example
 
 ```javascript
-// 检查文件完整性
+// Check file integrity
 const checkFiles = async () => {
   const response = await fetch('http://localhost:8000/check-files', {
     method: 'POST',
@@ -114,82 +122,83 @@ const checkFiles = async () => {
   return await response.json();
 };
 
-// 显示PNG图片
+// Display PNG image
 const imageUrl = `http://localhost:8000/static/images/20250301080000.png`;
 ```
 
-## 🛠️ 核心功能详解
 
-### 智能文件监控系统
+## 🛠️ Core Feature Details
+
+### Intelligent File Monitoring System
 
 ```python
 from himawari_processor import create_file_monitor
 
-# 创建文件监控器
+# Create file monitor
 monitor = create_file_monitor()
 
-# 检查文件完整性
+# Check file completeness
 results = monitor.check_file_completeness(
-    timelims=('2025-03-01T00:00:00', '2025-03-01T12:00:00'),
-    tstep=3600,  # 1小时间隔
-    check_nc=True,
-    check_png=True
+  timelims=('2025-03-01T00:00:00', '2025-03-01T12:00:00'),
+  tstep=3600,  # 1 hour interval
+  check_nc=True,
+  check_png=True
 )
 
-# 自动修复缺失文件
+# Automatically repair missing files
 monitor.repair_missing_files(
-    check_results=results,
-    lonlims=(113.0, 115.0),
-    latlims=(-24.0, -21.0)
+  check_results=results,
+  lonlims=(113.0, 115.0),
+  latlims=(-24.0, -21.0)
 )
 ```
 
-### 两步修复策略
+### Two-step Repair Strategy
 
-1. **Step 1**: 下载并处理缺失的NC文件（同时生成PNG）
-2. **Step 2**: 为现有NC文件重新生成缺失的PNG
+1. **Step 1**: Download and process missing NC files (generate PNG at the same time)
+2. **Step 2**: Regenerate missing PNGs for existing NC files
 
-### 前端Timeline集成
+### Frontend Timeline Integration
 
-- ⏰ **时间同步**: Timeline与后端数据时间戳完全一致
-- 🖼️ **实时显示**: 根据选择时间自动加载对应PNG图片
-- 🔄 **智能缓存**: 避免重复加载相同图片
-- 📍 **时区适配**: 自动转换UTC时间到本地时间显示
+- ⏰ **Time Sync**: Timeline is fully synchronized with backend data timestamps
+- 🖼️ **Real-time Display**: Automatically load corresponding PNG image based on selected time
+- 🔄 **Smart Cache**: Avoid reloading the same image
+- 📍 **Timezone Adaptation**: Automatically convert UTC time to local time for display
 
-### 技术架构优势
+### Technical Architecture Advantages
 
-1. **🚀 FastAPI**: 自动API文档、数据验证、高性能异步处理
-2. **🔧 智能修复**: 分离NC下载和PNG生成，提高修复效率
-3. **📊 实时监控**: 文件完整性检查和系统状态监控
-4. **🌐 前后端分离**: 支持Next.js前端的RESTful API
-5. **🛡️ 错误处理**: 完善的异常处理和回退机制
-6. **📈 可扩展性**: 模块化设计，易于添加新功能
+1. **🚀 FastAPI**: Automatic API docs, data validation, high-performance async processing
+2. **🔧 Smart Repair**: Separate NC download and PNG generation, improve repair efficiency
+3. **📊 Real-time Monitoring**: File completeness check and system status monitoring
+4. **🌐 Frontend-backend Separation**: Supports Next.js frontend RESTful API
+5. **🛡️ Error Handling**: Robust exception handling and fallback mechanism
+6. **📈 Scalability**: Modular design, easy to add new features
 
-## 生产部署建议
+## Production Deployment Suggestions
 
-### 数据库配置
+### Database Configuration
 
 ```python
-# 使用PostgreSQL + PostGIS存储元数据
+# Use PostgreSQL + PostGIS to store metadata
 # config.py
 DATABASE_URL = "postgresql://user:password@localhost/himawari_db"
 
-# 存储文件路径、处理状态等
+# Store file path, processing status, etc.
 class ProcessedFile(Base):
-    __tablename__ = "processed_files"
+  __tablename__ = "processed_files"
     
-    id = Column(Integer, primary_key=True)
-    filename = Column(String, unique=True)
-    timestamp = Column(DateTime)
-    bounds = Column(Geometry('POLYGON'))  # PostGIS几何类型
-    file_path = Column(String)
-    processing_status = Column(String)
+  id = Column(Integer, primary_key=True)
+  filename = Column(String, unique=True)
+  timestamp = Column(DateTime)
+  bounds = Column(Geometry('POLYGON'))  # PostGIS geometry type
+  file_path = Column(String)
+  processing_status = Column(String)
 ```
 
-### 异步任务队列
+### Async Task Queue
 
 ```python
-# 使用Celery + Redis处理长时间运行的任务
+# Use Celery + Redis to handle long-running tasks
 from celery import Celery
 
 celery_app = Celery('himawari_processor')
@@ -197,11 +206,11 @@ celery_app.config_from_object('celery_config')
 
 @celery_app.task
 def process_satellite_data_task(request_params):
-    processor = HimawariDataProcessor()
-    return processor.process_time_series(**request_params)
+  processor = HimawariDataProcessor()
+  return processor.process_time_series(**request_params)
 ```
 
-### Docker部署
+### Docker Deployment
 
 ```dockerfile
 # Dockerfile
@@ -217,11 +226,11 @@ EXPOSE 8000
 CMD ["uvicorn", "api_example:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-## 下一步开发建议
+## Next Development Suggestions
 
-1. **数据库集成** - 存储处理历史和元数据
-2. **缓存层** - Redis缓存频繁访问的数据
-3. **监控** - 添加日志和监控指标
-4. **测试** - 编写单元测试和集成测试
-5. **安全性** - 添加认证和授权
-6. **文档** - API文档和用户指南
+1. **Database Integration** - Store processing history and metadata
+2. **Cache Layer** - Use Redis to cache frequently accessed data
+3. **Monitoring** - Add logging and monitoring metrics
+4. **Testing** - Write unit and integration tests
+5. **Security** - Add authentication and authorization
+6. **Documentation** - API docs and user guide
