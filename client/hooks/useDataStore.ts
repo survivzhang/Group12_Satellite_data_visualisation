@@ -199,25 +199,26 @@ export function useDataStore(): DataStore {
         return;
       }
       
-      console.log(`Available satellites: ${availableSatellites.join(', ')}`);
+      // 调整优先级：Sentinel-3优先，Himawari最后
+      const sortedSatellites = availableSatellites.sort((a, b) => {
+        if (a.startsWith('sentinel3') && !b.startsWith('sentinel3')) return -1;
+        if (!a.startsWith('sentinel3') && b.startsWith('sentinel3')) return 1;
+        if (a === 'himawari') return 1;
+        if (b === 'himawari') return -1;
+        return 0;
+      });
       
-      // 为每个可用的卫星触发数据更新
-      const downloadPromises = availableSatellites.map(async (satellite) => {
+      console.log(`Available satellites (prioritized): ${sortedSatellites.join(', ')}`);
+      
+      // 串行执行数据更新（Sentinel-3优先，Himawari最后）
+      let successful = 0;
+      
+      for (const satellite of sortedSatellites) {
         try {
-          if (satellite === 'himawari') {
-            // 使用Himawari的auto-monitor-repair端点
-            const response = await fetch(`${API_BASE_URL}/himawari/auto-monitor-repair`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' }
-            });
-            
-            if (response.ok) {
-              const result = await response.json();
-              console.log(`Himawari data update initiated:`, result);
-              return result;
-            }
-          } else if (satellite.startsWith('sentinel3')) {
-            // 使用Sentinel-3的process-data端点
+          console.log(`\n🚀 Starting data update for ${satellite}...`);
+          
+          if (satellite.startsWith('sentinel3')) {
+            // 优先执行Sentinel-3的process-data端点
             const response = await fetch(`${API_BASE_URL}/sentinel3/process-data`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -236,26 +237,37 @@ export function useDataStore(): DataStore {
             
             if (response.ok) {
               const result = await response.json();
-              console.log(`${satellite} data update initiated:`, result);
+              console.log(`✅ ${satellite} data update initiated:`, result);
               
-              // 如果有task_id，监控任务状态
+              // 如果有task_id，监控任务状态直到完成
               if (result.task_id) {
+                console.log(`⏳ Waiting for ${satellite} processing to complete...`);
                 await pollSentinel3Status(result.task_id, satellite);
+                console.log(`✅ ${satellite} processing completed`);
               }
               
-              return result;
+              successful++;
+            }
+          } else if (satellite === 'himawari') {
+            // 最后执行Himawari的auto-monitor-repair端点
+            console.log(`⏳ Starting Himawari data update (this may take longer due to network)...`);
+            const response = await fetch(`${API_BASE_URL}/himawari/auto-monitor-repair`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (response.ok) {
+              const result = await response.json();
+              console.log(`✅ Himawari data update initiated:`, result);
+              successful++;
             }
           }
         } catch (error) {
-          console.warn(`Failed to update data for ${satellite}:`, error);
+          console.warn(`❌ Failed to update data for ${satellite}:`, error);
         }
-      });
+      }
       
-      // 等待所有下载任务完成
-      const results = await Promise.allSettled(downloadPromises);
-      const successful = results.filter(r => r.status === 'fulfilled').length;
-      
-      console.log(`Data update completed: ${successful}/${availableSatellites.length} satellites updated successfully`);
+      console.log(`\n🎯 Data update completed: ${successful}/${sortedSatellites.length} satellites updated successfully`);
       
     } catch (error) {
       console.error('Error downloading latest data:', error);
@@ -461,10 +473,10 @@ export function useDataStore(): DataStore {
         setMissingFiles(0);
       }
       
-      // 如果有缺失文件，自动触发修复/下载
+      // 如果有缺失文件，自动触发下载/修复
       if (currentMissingFiles > 0) {
-        console.log(`🔧 Found ${currentMissingFiles} missing files. Starting auto repair...`);
-        await triggerAutoRepair();
+        console.log(`🔧 Found ${currentMissingFiles} missing files. Starting data download...`);
+        await downloadLatestData();
       } else {
         console.log('✅ No missing files detected. System is up to date.');
       }
@@ -490,7 +502,7 @@ export function useDataStore(): DataStore {
     } finally {
       setIsUpdating(false);
     }
-  }, [triggerAutoRepair, isUpdating, isCheckingFiles]);
+  }, [downloadLatestData, isUpdating, isCheckingFiles]);
 
   // 获取特定参数的文件列表
   const getParameterFiles = useCallback(async (paramId: string, fileType: 'nc' | 'png') => {

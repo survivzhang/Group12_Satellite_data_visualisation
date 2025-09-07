@@ -80,16 +80,27 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
           file.filename.includes(currentTimestamp)
         );
       } else {
-        // Sentinel-3: 寻找最接近时间的文件
-        targetFile = availableFiles.find(file => {
-          const fileTime = extractTimeFromFilename(file.filename);
-          return fileTime && isTimeClose(fileTime, timeRange.start);
-        });
+        // Sentinel-3: 寻找选中时间点之前最近的那张图
+        const selectedTime = timeRange.start.getTime();
+        let bestFile = null;
+        let bestTimeDiff = Infinity;
         
-        // 如果没找到精确匹配，使用最新的文件
-        if (!targetFile && availableFiles.length > 0) {
-          targetFile = availableFiles[0]; // 文件已按时间排序
+        for (const file of availableFiles) {
+          const fileTime = extractTimeFromFilename(file.filename);
+          if (fileTime) {
+            const fileTimestamp = fileTime.getTime();
+            // 只考虑选中时间之前的文件
+            if (fileTimestamp <= selectedTime) {
+              const timeDiff = selectedTime - fileTimestamp;
+              if (timeDiff < bestTimeDiff) {
+                bestTimeDiff = timeDiff;
+                bestFile = file;
+              }
+            }
+          }
         }
+        
+        targetFile = bestFile; // 如果没有符合条件的文件，targetFile为null，显示空白
       }
       
       if (targetFile) {
@@ -140,11 +151,21 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
 
   // 辅助函数：从文件名提取时间
   const extractTimeFromFilename = (filename: string): Date | null => {
-    // 这里需要根据实际的Sentinel-3文件命名格式来实现
-    // 示例实现，需要根据实际格式调整
-    const timeMatch = filename.match(/(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})/);
+    // Sentinel-3 PNG文件格式: YYYYMMDD_HHMMSS.png
+    // 例如: 20250301_011200.png
+    const timeMatch = filename.match(/(\d{8})_(\d{6})\.png$/);
     if (timeMatch) {
-      return new Date(timeMatch[1].replace(/-/g, ':').replace('T', 'T') + 'Z');
+      const dateStr = timeMatch[1]; // YYYYMMDD
+      const timeStr = timeMatch[2]; // HHMMSS
+      
+      const year = dateStr.substring(0, 4);
+      const month = dateStr.substring(4, 6);
+      const day = dateStr.substring(6, 8);
+      const hour = timeStr.substring(0, 2);
+      const minute = timeStr.substring(2, 4);
+      const second = timeStr.substring(4, 6);
+      
+      return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`);
     }
     return null;
   };

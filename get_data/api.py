@@ -531,6 +531,27 @@ async def list_files(satellite: str, parameter: str, file_type: str):
                 files = [{"filename": f.name, "size": f.stat().st_size} for f in files_dir.glob(pattern)]
             else:
                 files = []
+        elif satellite.startswith("sentinel3"):
+            # For Sentinel-3, list actual files
+            from pathlib import Path
+            sentinel3_base = Path("saternal3/data/eumetview_sentinel3")
+            
+            files_dir = sentinel3_base / satellite / parameter / file_type
+            pattern = f"*.{file_type}"
+            
+            if files_dir.exists():
+                file_list = []
+                for f in files_dir.glob(pattern):
+                    file_info = {
+                        "filename": f.name,
+                        "size": f.stat().st_size,
+                        "url": f"/static/{satellite}/{parameter}/{file_type}/{f.name}"
+                    }
+                    file_list.append(file_info)
+                # Sort by filename (which includes timestamp) in descending order (newest first)
+                files = sorted(file_list, key=lambda x: x["filename"], reverse=True)
+            else:
+                files = []
         else:
             files = []
         
