@@ -8,6 +8,7 @@ interface DataStore {
   missingFiles: number;
   updateData: () => Promise<void>;
   systemStatus: any;
+  getParameterFiles: (paramId: string, fileType: 'nc' | 'png') => Promise<any[]>;
 }
 
 interface FileCheckResponse {
@@ -38,8 +39,17 @@ interface FileCheckResponse {
   timestamp: string;
 }
 
-// API配置
+// API配置 - 使用统一API
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+// 卫星参数映射
+const SATELLITE_MAPPING = {
+  'ssth': { satellite: 'himawari', parameter: 'sst' },
+  'sst-s3a': { satellite: 'sentinel3a', parameter: 'sst' },
+  'sst-s3b': { satellite: 'sentinel3b', parameter: 'sst' },
+  'chl-s3a': { satellite: 'sentinel3a', parameter: 'chl' },
+  'chl-s3b': { satellite: 'sentinel3b', parameter: 'chl' }
+};
 
 export function useDataStore(): DataStore {
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
@@ -65,113 +75,138 @@ export function useDataStore(): DataStore {
 
   const checkMissingFiles = useCallback(async () => {
     try {
-      const endTime = new Date('2025-03-01T12:00:00Z');
-      const startTime = new Date('2025-03-01T00:00:00Z');
-      
-      const response = await fetch(`${API_BASE_URL}/check-files`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          start_time: startTime.toISOString(),
-          end_time: endTime.toISOString(),
-          time_step_hours: 1,
-          check_nc: true,
-          check_png: true
-        })
-      });
+      // 使用新的统一API检查系统状态
+      const response = await fetch(`${API_BASE_URL}/system/status`);
       
       if (response.ok) {
-        const data: FileCheckResponse = await response.json();
+        const data = await response.json();
+        setSystemStatus(data);
         
-        // 计算总的缺失文件数
-        const totalMissing = data.nc_files.missing.length + 
-                           data.nc_files.corrupted.length + 
-                           data.png_files.missing.length;
+        // 从系统状态中提取文件信息
+        let totalMissing = 0;
+        
+        // 检查Himawari状态 - 只有当模块可用时才检查文件
+        if (data.satellites?.himawari?.available === true) {
+          try {
+            const himawariCheck = await fetch(`${API_BASE_URL}/himawari/check-files`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                start_time: '2025-03-01T00:00:00',
+                end_time: '2025-03-01T12:00:00',
+                time_step_hours: 1,
+                check_nc: true,
+                check_png: true
+              })
+            });
+            
+            if (himawariCheck.ok) {
+              const himawariData: FileCheckResponse = await himawariCheck.json();
+              totalMissing += himawariData.nc_files.missing.length + 
+                            himawariData.nc_files.corrupted.length + 
+                            himawariData.png_files.missing.length;
+            }
+          } catch (e) {
+            console.warn('Could not check Himawari files:', e);
+          }
+        } else {
+          console.log('Himawari module not available, skipping file check');
+        }
         
         setMissingFiles(totalMissing);
-        setLastUpdate(data.timestamp);
+        setLastUpdate(new Date().toISOString());
         
-        console.log('File check completed:', data.summary);
+        console.log('System status check completed:', data);
       } else {
-        console.error('File check failed:', response.statusText);
-        // 如果API失败，回退到模拟检查
+        console.error('System status check failed:', response.statusText);
         simulateFileCheck();
       }
     } catch (error) {
-      console.error('Error checking files:', error);
-      // 如果网络错误，回退到模拟检查
+      console.error('Error checking system status:', error);
       simulateFileCheck();
     }
   }, []);
   
   const simulateFileCheck = useCallback(() => {
-    // 备用的模拟检查（当API不可用时）
-    const expectedFiles = [
-      'sst-data', 
-      'chlorophyll-data', 
-      'salinity-data', 
-      'bathymetry-data'
-    ];
-    
-    let missing = 0;
-    expectedFiles.forEach(file => {
-      if (!localStorage.getItem(`ningaloo-${file}`)) {
-        missing++;
-      }
-    });
-    
-    setMissingFiles(missing);
+    // 当API不可用时，设置为0缺失文件
+    console.log('API unavailable, setting missing files to 0');
+    setMissingFiles(0);
   }, []);
 
-  const updateData = useCallback(async () => {
-    setIsUpdating(true);
-    
+  const downloadLatestData = useCallback(async () => {
     try {
-      // 首先检查文件完整性
-      await checkMissingFiles();
+      console.log('Downloading latest satellite data...');
       
-      // 如果有缺失文件，自动触发修复
-      if (missingFiles > 0) {
-        console.log(`Found ${missingFiles} missing files. Starting auto repair...`);
-        
-        // 自动触发修复
-        await triggerAutoRepair();
+      // 检查系统状态，找出可用的卫星
+      const statusResponse = await fetch(`${API_BASE_URL}/system/status`);
+      if (!statusResponse.ok) {
+        throw new Error('System status check failed');
       }
       
-      // 获取系统状态
-      try {
-        const statusResponse = await fetch(`${API_BASE_URL}/system-status`);
-        if (statusResponse.ok) {
-          const status = await statusResponse.json();
-          setSystemStatus(status);
-          console.log('System status updated:', status);
+      const systemStatus = await statusResponse.json();
+      const availableSatellites = Object.entries(systemStatus.satellites || {})
+        .filter(([_, status]: [string, any]) => status.available)
+        .map(([satellite, _]) => satellite);
+      
+      if (availableSatellites.length === 0) {
+        console.log('No satellites available for data download');
+        return;
+      }
+      
+      console.log(`Available satellites: ${availableSatellites.join(', ')}`);
+      
+      // 为每个可用的卫星触发数据更新
+      const downloadPromises = availableSatellites.map(async (satellite) => {
+        try {
+          if (satellite === 'himawari') {
+            // 使用Himawari的auto-monitor-repair端点
+            const response = await fetch(`${API_BASE_URL}/himawari/auto-monitor-repair`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (response.ok) {
+              const result = await response.json();
+              console.log(`Himawari data update initiated:`, result);
+              return result;
+            }
+          } else if (satellite.startsWith('sentinel3')) {
+            // 使用Sentinel-3的auto-check-regenerate端点
+            const response = await fetch(`${API_BASE_URL}/sentinel3/auto-check-regenerate`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                start_time: '2025-03-01T00:00:00',
+                end_time: '2025-03-01T12:00:00',
+                west_lon: 113.0,
+                east_lon: 115.0,
+                south_lat: -24.0,
+                north_lat: -21.0
+              })
+            });
+            
+            if (response.ok) {
+              const result = await response.json();
+              console.log(`${satellite} data update initiated:`, result);
+              return result;
+            }
+          }
+        } catch (error) {
+          console.warn(`Failed to update data for ${satellite}:`, error);
         }
-      } catch (statusError) {
-        console.warn('Could not fetch system status:', statusError);
-      }
+      });
       
-      // 更新本地元数据
-      const now = new Date().toISOString();
-      const metadata = {
-        lastUpdate: now,
-        lastCheck: now,
-        missingFiles: missingFiles
-      };
+      // 等待所有下载任务完成
+      const results = await Promise.allSettled(downloadPromises);
+      const successful = results.filter(r => r.status === 'fulfilled').length;
       
-      localStorage.setItem('ningaloo-research-data', JSON.stringify(metadata));
-      setLastUpdate(now);
+      console.log(`Data update completed: ${successful}/${availableSatellites.length} satellites updated successfully`);
       
     } catch (error) {
-      console.error('Failed to update data:', error);
-      
-      // 如果API不可用，回退到模拟模式
-      await simulateDataUpdate();
-    } finally {
-      setIsUpdating(false);
+      console.error('Error downloading latest data:', error);
+      throw error;
     }
-  }, [checkMissingFiles, missingFiles]);
+  }, []);
 
   const triggerAutoRepair = useCallback(async () => {
     try {
@@ -190,7 +225,8 @@ export function useDataStore(): DataStore {
         repair_png: true
       };
 
-      const response = await fetch(`${API_BASE_URL}/repair-files`, {
+      // 使用新的统一API修复端点
+      const response = await fetch(`${API_BASE_URL}/himawari/repair-files`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -204,7 +240,7 @@ export function useDataStore(): DataStore {
         
         // 轮询检查修复状态
         if (result.task_id) {
-          await pollRepairStatus(result.task_id);
+          await pollRepairStatus(result.task_id, 'himawari');
         }
       } else {
         console.error('Auto repair failed:', response.statusText);
@@ -214,13 +250,14 @@ export function useDataStore(): DataStore {
     }
   }, []);
 
-  const pollRepairStatus = useCallback(async (taskId: string) => {
+  const pollRepairStatus = useCallback(async (taskId: string, satellite: string = 'himawari') => {
     const maxPolls = 30; // 最多轮询30次（约5分钟）
     let pollCount = 0;
     
     const poll = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/status/${taskId}`);
+        // 使用新的统一API状态端点
+        const response = await fetch(`${API_BASE_URL}/${satellite}/status/${taskId}`);
         if (response.ok) {
           const status = await response.json();
           console.log(`Repair status: ${status.status} - ${status.message}`);
@@ -246,84 +283,119 @@ export function useDataStore(): DataStore {
     
     poll();
   }, [checkMissingFiles]);
-  
-  const simulateDataUpdate = useCallback(async () => {
-    // 备用的模拟更新（当API不可用时）
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    const dataFiles = [
-      { key: 'ningaloo-sst-data', data: generateMockData('sst') },
-      { key: 'ningaloo-chlorophyll-data', data: generateMockData('chlorophyll') },
-      { key: 'ningaloo-salinity-data', data: generateMockData('salinity') },
-      { key: 'ningaloo-bathymetry-data', data: generateMockData('bathymetry') }
-    ];
-    
-    dataFiles.forEach(file => {
-      localStorage.setItem(file.key, JSON.stringify(file.data));
-    });
-    
-    const now = new Date().toISOString();
-    const metadata = {
-      lastUpdate: now,
-      filesCount: dataFiles.length,
-      totalSize: dataFiles.reduce((sum, file) => sum + JSON.stringify(file.data).length, 0)
-    };
-    
-    localStorage.setItem('ningaloo-research-data', JSON.stringify(metadata));
-    setLastUpdate(now);
-    setMissingFiles(0);
-  }, []);
 
-  const generateMockData = (parameter: string) => {
-    const dataPoints = [];
-    const now = Date.now();
+  const updateData = useCallback(async () => {
+    setIsUpdating(true);
     
-    // Generate time series data for the last 30 days
-    for (let i = 0; i < 30; i++) {
-      for (let j = 0; j < 24; j++) { // Hourly data
-        const timestamp = now - (i * 24 * 60 * 60 * 1000) - (j * 60 * 60 * 1000);
+    try {
+       // 首先检查文件完整性并获取当前缺失文件数量
+      let currentMissingFiles = 0;
+      
+      try {
+        // 检查系统状态
+        const response = await fetch(`${API_BASE_URL}/system/status`);
         
-        // Generate multiple spatial points for each timestamp
-        for (let k = 0; k < 10; k++) {
-          dataPoints.push({
-            timestamp,
-            lat: -22.3 + (Math.random() - 0.5) * 2, // Ningaloo area
-            lng: 113.8 + (Math.random() - 0.5) * 2,
-            value: getRandomValue(parameter),
-            quality: Math.random() > 0.1 ? 'good' : 'questionable'
-          });
+        if (response.ok) {
+          const data = await response.json();
+          setSystemStatus(data);
+          
+          // 检查Himawari状态
+          if (data.satellites?.himawari?.available === true) {
+            const himawariCheck = await fetch(`${API_BASE_URL}/himawari/check-files`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                start_time: '2025-03-01T00:00:00',
+                end_time: '2025-03-01T12:00:00',
+                time_step_hours: 1,
+                check_nc: true,
+                check_png: true
+              })
+            });
+            
+            if (himawariCheck.ok) {
+              const himawariData: FileCheckResponse = await himawariCheck.json();
+              currentMissingFiles = himawariData.nc_files.missing.length + 
+                                  himawariData.nc_files.corrupted.length + 
+                                  himawariData.png_files.missing.length;
+              
+              console.log(`File check completed: ${currentMissingFiles} missing files detected`);
+              console.log('Missing NC files:', himawariData.nc_files.missing);
+              console.log('Corrupted NC files:', himawariData.nc_files.corrupted);
+              console.log('Missing PNG files:', himawariData.png_files.missing);
+            }
+          }
+          
+          setMissingFiles(currentMissingFiles);
         }
+      } catch (error) {
+        console.error('Error during file check:', error);
+        currentMissingFiles = 0;
+        setMissingFiles(0);
       }
+      
+      // 如果有缺失文件，自动触发修复/下载
+      if (currentMissingFiles > 0) {
+        console.log(`🔧 Found ${currentMissingFiles} missing files. Starting auto repair...`);
+        await triggerAutoRepair();
+      } else {
+        console.log('✅ No missing files detected. System is up to date.');
+      }
+      
+      // 更新本地元数据
+      const now = new Date().toISOString();
+      const metadata = {
+        lastUpdate: now,
+        lastCheck: now,
+        missingFiles: currentMissingFiles
+      };
+      
+      localStorage.setItem('ningaloo-research-data', JSON.stringify(metadata));
+      setLastUpdate(now);
+      
+    } catch (error) {
+      console.error('Failed to update data:', error);
+      
+      // 如果API不可用，只更新时间戳
+      const now = new Date().toISOString();
+      setLastUpdate(now);
+      localStorage.setItem('ningaloo-research-data', JSON.stringify({ lastUpdate: now }));
+    } finally {
+      setIsUpdating(false);
     }
-    
-    return {
-      parameter,
-      generatedAt: now,
-      count: dataPoints.length,
-      data: dataPoints
-    };
-  };
+  }, [triggerAutoRepair]);
 
-  const getRandomValue = (parameter: string) => {
-    switch (parameter) {
-      case 'sst': 
-        return 18 + Math.random() * 12 + Math.sin(Date.now() / 86400000) * 3; // Seasonal variation
-      case 'chlorophyll': 
-        return Math.random() * 5 * (1 + Math.sin(Date.now() / 86400000) * 0.5);
-      case 'salinity': 
-        return 34 + Math.random() * 2 + Math.sin(Date.now() / 86400000) * 0.5;
-      case 'bathymetry': 
-        return -Math.random() * 200; // Depth data doesn't change over time
-      default: 
-        return Math.random() * 100;
+  // 获取特定参数的文件列表
+  const getParameterFiles = useCallback(async (paramId: string, fileType: 'nc' | 'png') => {
+    try {
+      const mapping = SATELLITE_MAPPING[paramId as keyof typeof SATELLITE_MAPPING];
+      if (!mapping) {
+        console.warn(`No satellite mapping found for parameter: ${paramId}`);
+        return [];
+      }
+
+      const { satellite, parameter } = mapping;
+      const response = await fetch(`${API_BASE_URL}/api/v1/satellites/${satellite}/${parameter}/${fileType}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        return data.files || [];
+      } else {
+        console.error(`Failed to fetch ${fileType} files for ${paramId}:`, response.statusText);
+        return [];
+      }
+    } catch (error) {
+      console.error(`Error fetching ${fileType} files for ${paramId}:`, error);
+      return [];
     }
-  };
+  }, []);
 
   return {
     lastUpdate,
     isUpdating,
     missingFiles,
     updateData,
-    systemStatus
+    systemStatus,
+    getParameterFiles
   };
 }

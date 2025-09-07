@@ -35,7 +35,7 @@ export default function NingalooResearchApp() {
   const [expandedParams, setExpandedParams] = useState(false);
   const [fullscreenMap, setFullscreenMap] = useState<string | null>(null);
   
-  const { lastUpdate, isUpdating, updateData, missingFiles } = useDataStore();
+  const { lastUpdate, isUpdating, updateData, missingFiles, systemStatus } = useDataStore();
 
   const availableParameters: Parameter[] = [
     { 
@@ -151,8 +151,18 @@ export default function NingalooResearchApp() {
           </div>
           
           <div className="flex items-center gap-3">
-            <div className="text-sm text-slate-600">
-              Last update: {lastUpdate ? new Date(lastUpdate).toLocaleString() : 'Never'}
+            <div className="text-sm text-slate-600 space-y-1">
+              <div>Last update: {lastUpdate ? new Date(lastUpdate).toLocaleString() : 'Never'}</div>
+              {systemStatus && (
+                <div className="flex items-center gap-2">
+                  <span>Satellites:</span>
+                  {Object.entries(systemStatus.satellites || {}).map(([satellite, status]: [string, any]) => (
+                    <Badge key={satellite} variant={status.available ? "default" : "secondary"} className="text-xs">
+                      {satellite}: {status.available ? "✅" : "❌"}
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </div>
             <Button 
               onClick={updateData}
@@ -160,7 +170,7 @@ export default function NingalooResearchApp() {
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               <RefreshCw className={`h-4 w-4 mr-2 ${isUpdating ? 'animate-spin' : ''}`} />
-              Update Data
+              {isUpdating ? 'Updating...' : 'Update Data'}
             </Button>
             {missingFiles > 0 && (
               <Badge variant="destructive">
