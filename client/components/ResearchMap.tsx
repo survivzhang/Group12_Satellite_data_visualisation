@@ -11,9 +11,10 @@ interface ResearchMapProps {
   timeRange: TimeRange;
   availableParameters: Parameter[];
   isFullscreen?: boolean;
+  onClose?: () => void;
 }
 
-export function ResearchMap({ parameter, timeRange, availableParameters, isFullscreen }: ResearchMapProps) {
+export function ResearchMap({ parameter, timeRange, availableParameters, isFullscreen, onClose }: ResearchMapProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState(false);
@@ -90,6 +91,16 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
 
   return (
     <div className={`relative ${isFullscreen ? 'h-full' : 'h-96'} bg-gradient-to-br from-blue-900 via-blue-700 to-teal-600 rounded-lg overflow-hidden`}>
+      {/* Close button */}
+      {onClose && (
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 z-20 bg-white/80 hover:bg-white text-slate-800 rounded-full p-1 shadow focus:outline-none"
+          aria-label="Close map"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      )}
       {/* Show PNG image for SST, otherwise show placeholder */}
       {imageUrl && parameter === 'ssth' ? (
         <div className="absolute inset-0 w-full h-full">
@@ -164,7 +175,7 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
       </div>
 
       {/* Live indicator */}
-      <div className="absolute top-4 right-4">
+      <div className="absolute top-4 right-16">
         <Badge className="bg-green-500/20 backdrop-blur text-green-100 border-green-400/30 animate-pulse">
           <Zap className="h-3 w-3 mr-1" />
           Live
