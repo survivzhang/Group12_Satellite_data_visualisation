@@ -228,6 +228,10 @@ class Sentinel3API(BaseSatelliteAPI):
             return status.dict()
         elif path == "test-endpoints":
             return await self._get_test_endpoints()
+        elif path.startswith("status/"):
+            # Handle status/{task_id} requests
+            task_id = path.split("/", 1)[1]
+            return await self.get_task_status(task_id)
         else:
             raise HTTPException(status_code=404, detail=f"Sentinel-3 endpoint '{path}' not found")
     
@@ -250,6 +254,8 @@ class Sentinel3API(BaseSatelliteAPI):
                 return await self._regenerate_png_files(data)
             elif path == "auto-check-regenerate" and data:
                 return await self._auto_check_and_regenerate(data)
+            elif path == "check-freshness" and data:
+                return await self._check_data_freshness(data)
             elif path.startswith("describe-coverage/"):
                 layer_key = path.split("/", 1)[1]
                 return await self._describe_coverage(layer_key)
@@ -489,6 +495,33 @@ class Sentinel3API(BaseSatelliteAPI):
                 "regeneration_performed": results['regeneration_performed'],
                 "timestamp": datetime.utcnow().isoformat()
             }
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def _check_data_freshness(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Check data freshness using the file monitor"""
+        try:
+            satellite = data.get("satellite")
+            threshold_hours = data.get("threshold_hours", 2)
+            
+            if satellite:
+                # Check specific satellite
+                results = {}
+                for data_type in ['sst', 'chl']:
+                    result = self.file_monitor.check_data_freshness(satellite, data_type)
+                    results[f"{satellite}_{data_type}"] = result
+                
+                return {
+                    "results": results,
+                    "satellite": satellite,
+                    "threshold_hours": threshold_hours,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            else:
+                # Check all satellites
+                results = self.file_monitor.check_all_data_freshness()
+                return results
+                
         except Exception as e:
             return {"error": str(e)}
     

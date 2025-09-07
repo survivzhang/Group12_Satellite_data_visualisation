@@ -35,7 +35,7 @@ export default function NingalooResearchApp() {
   const [expandedParams, setExpandedParams] = useState(false);
   const [fullscreenMap, setFullscreenMap] = useState<string | null>(null);
   
-  const { lastUpdate, isUpdating, updateData, missingFiles, systemStatus } = useDataStore();
+  const { lastUpdate, isUpdating, updateData, missingFiles, systemStatus, getParameterFiles } = useDataStore();
 
   const availableParameters: Parameter[] = [
     { 
@@ -228,6 +228,7 @@ export default function NingalooResearchApp() {
                   parameter={instance.parameter}
                   timeRange={selectedTimeRange}
                   availableParameters={availableParameters}
+                  getParameterFiles={getParameterFiles}
                 />
               </CardContent>
             </Card>

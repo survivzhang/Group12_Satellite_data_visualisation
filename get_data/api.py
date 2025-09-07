@@ -80,8 +80,9 @@ class UnifiedSystemStatus(BaseModel):
 himawari_processor = HimawariDataProcessor()
 himawari_monitor = create_file_monitor()
 
-# Global HimawariAPI instance to maintain task state
+# Global API instances to maintain task state
 _himawari_api_instance = None
+_sentinel3_api_instance = None
 
 def get_himawari_api():
     """Get global HimawariAPI instance"""
@@ -90,6 +91,14 @@ def get_himawari_api():
         from satellites.himawari.api import HimawariAPI
         _himawari_api_instance = HimawariAPI()
     return _himawari_api_instance
+
+def get_sentinel3_api():
+    """Get global Sentinel3API instance"""
+    global _sentinel3_api_instance
+    if _sentinel3_api_instance is None:
+        from satellites.sentinel3.api import Sentinel3API
+        _sentinel3_api_instance = Sentinel3API()
+    return _sentinel3_api_instance
 
 # Helper functions
 def setup_data_directories():
@@ -111,6 +120,25 @@ def setup_data_directories():
             print(f"✅ Created directory: {directory}")
         else:
             print(f"📁 Directory exists: {directory}")
+    
+    # Sentinel-3 directories
+    sentinel3_base = Path("saternal3/data/eumetview_sentinel3")
+    sentinel3_dirs = []
+    
+    # Create satellite/datatype/nc and satellite/datatype/png directories
+    for satellite in ['sentinel3a', 'sentinel3b']:
+        for data_type in ['sst', 'chl']:
+            sentinel3_dirs.extend([
+                sentinel3_base / satellite / data_type / "nc",
+                sentinel3_base / satellite / data_type / "png"
+            ])
+    
+    for directory in sentinel3_dirs:
+        if not directory.exists():
+            directory.mkdir(parents=True, exist_ok=True)
+            print(f"✅ Created directory: {directory}")
+        else:
+            print(f"📁 Directory exists: {directory}")
 
 def setup_static_files(app: FastAPI):
     """Setup static file serving for satellite data"""
@@ -123,6 +151,18 @@ def setup_static_files(app: FastAPI):
         print(f"✅ Mounted static files: /static/himawari/sst/png -> {himawari_png_dir}")
     else:
         print(f"⚠️ PNG directory not found: {himawari_png_dir}")
+    
+    # Mount Sentinel-3 PNG files
+    sentinel3_base = Path("saternal3/data/eumetview_sentinel3")
+    for satellite in ['sentinel3a', 'sentinel3b']:
+        for data_type in ['sst', 'chl']:
+            png_dir = sentinel3_base / satellite / data_type / "png"
+            if png_dir.exists():
+                mount_path = f"/static/{satellite}/{data_type}/png"
+                app.mount(mount_path, StaticFiles(directory=str(png_dir)), name=f"{satellite}_{data_type}_png")
+                print(f"✅ Mounted static files: {mount_path} -> {png_dir}")
+            else:
+                print(f"⚠️ PNG directory not found: {png_dir}")
 
 # Satellite registry (simplified for current implementation)
 SATELLITES = {
@@ -134,6 +174,38 @@ SATELLITES = {
                 "name": "Sea Surface Temperature",
                 "unit": "Kelvin",
                 "description": "Ocean surface temperature data"
+            }
+        }
+    },
+    "sentinel3a": {
+        "name": "Sentinel-3A",
+        "description": "European ocean and land monitoring satellite",
+        "parameters": {
+            "sst": {
+                "name": "Sea Surface Temperature",
+                "unit": "Kelvin", 
+                "description": "Ocean surface temperature data"
+            },
+            "chl": {
+                "name": "Chlorophyll Concentration",
+                "unit": "mg/m³",
+                "description": "Ocean chlorophyll concentration data"
+            }
+        }
+    },
+    "sentinel3b": {
+        "name": "Sentinel-3B", 
+        "description": "European ocean and land monitoring satellite",
+        "parameters": {
+            "sst": {
+                "name": "Sea Surface Temperature",
+                "unit": "Kelvin",
+                "description": "Ocean surface temperature data"
+            },
+            "chl": {
+                "name": "Chlorophyll Concentration", 
+                "unit": "mg/m³",
+                "description": "Ocean chlorophyll concentration data"
             }
         }
     }
@@ -164,9 +236,12 @@ async def lifespan(app: FastAPI):
     print("\n🔗 API endpoints ready:")
     print("   📊 Unified API: /api/v1/satellites")
     print("   🛰️ Himawari API: /himawari/*")
+    print("   🛰️ Sentinel-3 API: /sentinel3/*")
     print("   ⚡ System Status: /system/status")
     print("   🏥 Health Check: /health")
     print("   🖼️ Static Files: /static/himawari/sst/png")
+    print("   🖼️ Static Files: /static/sentinel3a/{sst,chl}/png")
+    print("   🖼️ Static Files: /static/sentinel3b/{sst,chl}/png")
     print("   📚 Documentation: /docs")
     
     yield  # Application runs here
@@ -278,6 +353,54 @@ async def get_system_status():
                             "base": str(himawari_base),
                             "parts_exists": (himawari_base / "parts").exists(),
                             "png_exists": (himawari_base / "png").exists()
+                        }
+                    }
+                }
+            elif satellite_id.startswith("sentinel3"):
+                # For Sentinel-3, check if API and directories exist
+                from pathlib import Path
+                sentinel3_base = Path("saternal3/data/eumetview_sentinel3")
+                
+                # Check if directories exist
+                nc_dirs_exist = True
+                png_dirs_exist = True
+                total_nc_files = 0
+                total_png_files = 0
+                
+                for data_type in ['sst', 'chl']:
+                    nc_dir = sentinel3_base / satellite_id / data_type / "nc"
+                    png_dir = sentinel3_base / satellite_id / data_type / "png"
+                    
+                    if not nc_dir.exists():
+                        nc_dirs_exist = False
+                    else:
+                        total_nc_files += len(list(nc_dir.glob("*.nc")))
+                    
+                    if not png_dir.exists():
+                        png_dirs_exist = False
+                    else:
+                        total_png_files += len(list(png_dir.glob("*.png")))
+                
+                # Check if Sentinel-3 API is available
+                api_available = True
+                try:
+                    sentinel3_api = get_sentinel3_api()
+                    api_available = await sentinel3_api.is_available()
+                except Exception:
+                    api_available = False
+                
+                satellite_statuses[satellite_id] = {
+                    "available": api_available and nc_dirs_exist and png_dirs_exist,
+                    "status": {
+                        "api_available": api_available,
+                        "data_files": {
+                            "nc_files": total_nc_files,
+                            "png_files": total_png_files
+                        },
+                        "directories": {
+                            "base": str(sentinel3_base / satellite_id),
+                            "nc_dirs_exist": nc_dirs_exist,
+                            "png_dirs_exist": png_dirs_exist
                         }
                     }
                 }
@@ -514,6 +637,25 @@ async def himawari_proxy(path: str, request: Request, background_tasks: Backgrou
             return await himawari_api.handle_post_request(path, request_data, background_tasks)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Himawari proxy error: {str(e)}")
+
+# Sentinel-3-specific API routes (proxy to dedicated Sentinel-3 API)
+@app.api_route("/sentinel3/{path:path}", methods=["GET", "POST"])
+async def sentinel3_proxy(path: str, request: Request, background_tasks: BackgroundTasks = None):
+    """Proxy requests to Sentinel-3-specific API"""
+    try:
+        # Use global Sentinel-3 API instance
+        sentinel3_api = get_sentinel3_api()
+        
+        if request.method == "GET":
+            return await sentinel3_api.handle_get_request(path, dict(request.query_params))
+        elif request.method == "POST":
+            try:
+                request_data = await request.json() if request.headers.get("content-type") == "application/json" else {}
+            except:
+                request_data = {}
+            return await sentinel3_api.handle_post_request(path, request_data, background_tasks)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sentinel-3 proxy error: {str(e)}")
 
 # Error handlers
 @app.exception_handler(404)

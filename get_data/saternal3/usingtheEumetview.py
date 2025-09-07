@@ -551,6 +551,7 @@ class EUMETViewFileMonitor:
         """
         self.processor = processor
         self.base_dir = processor.base_dir
+        self.update_threshold_hours = 2  # Files older than 2 hours need updating
         
     def check_file_status(self, nc_file_path: str) -> dict:
         """
@@ -625,6 +626,100 @@ class EUMETViewFileMonitor:
         
         print(f"Status: {result['message']}")
         return result
+    
+    def check_data_freshness(self, satellite: str, data_type: str) -> dict:
+        """
+        Check if data needs updating based on file age (Sentinel-3 specific)
+        
+        Args:
+            satellite: Satellite name (sentinel3a, sentinel3b)
+            data_type: Data type (sst, chl)
+            
+        Returns:
+            Dictionary containing freshness check results
+        """
+        print(f"=== Checking Data Freshness for {satellite}/{data_type} ===")
+        
+        # Get the NC directory for this satellite/data_type
+        nc_dir = self.base_dir / satellite / data_type / "nc"
+        
+        if not nc_dir.exists():
+            return {
+                'needs_update': True,
+                'reason': 'NC directory does not exist',
+                'latest_file': None,
+                'file_age_hours': None,
+                'threshold_hours': self.update_threshold_hours
+            }
+        
+        # Find the most recent NC file
+        nc_files = list(nc_dir.glob("*.nc"))
+        if not nc_files:
+            return {
+                'needs_update': True,
+                'reason': 'No NC files found',
+                'latest_file': None,
+                'file_age_hours': None,
+                'threshold_hours': self.update_threshold_hours
+            }
+        
+        # Get the newest file
+        latest_file = max(nc_files, key=lambda f: f.stat().st_mtime)
+        file_modified_time = latest_file.stat().st_mtime
+        current_time = datetime.now().timestamp()
+        
+        # Calculate file age in hours
+        file_age_hours = (current_time - file_modified_time) / 3600
+        
+        # Check if file is older than threshold
+        needs_update = file_age_hours > self.update_threshold_hours
+        
+        latest_file_datetime = datetime.fromtimestamp(file_modified_time)
+        
+        print(f"✓ Latest file: {latest_file.name}")
+        print(f"✓ File modified: {latest_file_datetime}")
+        print(f"✓ File age: {file_age_hours:.2f} hours")
+        print(f"✓ Threshold: {self.update_threshold_hours} hours")
+        print(f"✓ Needs update: {needs_update}")
+        
+        return {
+            'needs_update': needs_update,
+            'reason': f'File is {file_age_hours:.2f} hours old' if needs_update else 'File is fresh',
+            'latest_file': str(latest_file),
+            'latest_file_name': latest_file.name,
+            'file_age_hours': file_age_hours,
+            'threshold_hours': self.update_threshold_hours,
+            'file_modified': latest_file_datetime.isoformat()
+        }
+    
+    def check_all_data_freshness(self) -> dict:
+        """
+        Check freshness for all satellite/data_type combinations
+        
+        Returns:
+            Dictionary with freshness results for all combinations
+        """
+        print("=== Checking All Data Freshness ===")
+        
+        results = {}
+        needs_update_count = 0
+        
+        for satellite in ['sentinel3a', 'sentinel3b']:
+            for data_type in ['sst', 'chl']:
+                key = f"{satellite}_{data_type}"
+                result = self.check_data_freshness(satellite, data_type)
+                results[key] = result
+                
+                if result['needs_update']:
+                    needs_update_count += 1
+        
+        return {
+            'results': results,
+            'total_checked': len(results),
+            'needs_update_count': needs_update_count,
+            'all_fresh': needs_update_count == 0,
+            'timestamp': datetime.now().isoformat()
+        }
     def check_and_regenerate_if_needed(self, nc_file_path: str) -> dict:
         """
         Check NC file status and regenerate PNGs if needed
@@ -748,6 +843,33 @@ def create_file_monitor(base_dir: str = "data/eumetview_sentinel3") -> EUMETView
     return EUMETViewFileMonitor(processor)
 
 
+def run_freshness_check_example():
+    """Run an example of the freshness checking system"""
+    print("=== EUMETView Data Freshness Check Example ===")
+    
+    # Create file monitor
+    monitor = create_file_monitor()
+    
+    # Check freshness for all data
+    results = monitor.check_all_data_freshness()
+    
+    print(f"\n=== Summary ===")
+    print(f"Total combinations checked: {results['total_checked']}")
+    print(f"Need updates: {results['needs_update_count']}")
+    print(f"All fresh: {results['all_fresh']}")
+    
+    # Show details for each combination
+    for key, result in results['results'].items():
+        print(f"\n{key}:")
+        print(f"  Needs update: {result['needs_update']}")
+        print(f"  Reason: {result['reason']}")
+        if result['latest_file']:
+            print(f"  Latest file: {result['latest_file_name']}")
+            print(f"  File age: {result['file_age_hours']:.2f} hours")
+
 if __name__ == "__main__":
     # Run example when script is executed directly
     run_eumetview_example()
+    
+    # Uncomment to test freshness checking
+    # run_freshness_check_example()

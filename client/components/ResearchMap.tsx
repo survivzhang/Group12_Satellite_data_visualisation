@@ -12,6 +12,7 @@ interface ResearchMapProps {
   timeRange: TimeRange;
   availableParameters: Parameter[];
   isFullscreen?: boolean;
+  getParameterFiles?: (paramId: string, fileType: 'nc' | 'png') => Promise<any[]>;
 }
 
 // 卫星参数映射
@@ -23,13 +24,16 @@ const SATELLITE_MAPPING = {
   'chl-s3b': { satellite: 'sentinel3b', parameter: 'chl', staticPath: '/static/sentinel3b/chl/png' }
 };
 
-export function ResearchMap({ parameter, timeRange, availableParameters, isFullscreen }: ResearchMapProps) {
+export function ResearchMap({ parameter, timeRange, availableParameters, isFullscreen, getParameterFiles }: ResearchMapProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState(false);
   const [availableFiles, setAvailableFiles] = useState<any[]>([]);
   
-  const { getParameterFiles } = useDataStore();
+  // 如果没有传入getParameterFiles，则使用useDataStore（向后兼容）
+  const dataStore = !getParameterFiles ? useDataStore() : null;
+  const getFiles = getParameterFiles || dataStore?.getParameterFiles;
+  
   const currentParam = availableParameters.find(p => p.id === parameter);
   const satelliteMapping = SATELLITE_MAPPING[parameter as keyof typeof SATELLITE_MAPPING];
 
@@ -57,13 +61,13 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
 
   // 获取可用文件列表
   useEffect(() => {
-    if (satelliteMapping) {
-      getParameterFiles(parameter, 'png').then(files => {
+    if (satelliteMapping && getFiles) {
+      getFiles(parameter, 'png').then(files => {
         setAvailableFiles(files);
         console.log(`Available PNG files for ${parameter}:`, files);
       });
     }
-  }, [parameter, satelliteMapping, getParameterFiles]);
+  }, [parameter, satelliteMapping, getFiles]);
 
   useEffect(() => {
     if (satelliteMapping && currentTimestamp && availableFiles.length > 0) {
