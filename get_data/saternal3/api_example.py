@@ -240,25 +240,32 @@ async def get_processing_status(task_id: str):
 async def list_processed_files():
     """List all processed NetCDF data files."""
     try:
-        # List files in the nc directory
-        nc_dir = processor.nc_dir
-        if not nc_dir.exists():
+        # List files in the new satellite/datatype/nc structure
+        base_dir = processor.base_dir
+        if not base_dir.exists():
             return FileListResponse(files=[], total=0, by_layer={})
         
         files = []
         by_layer = {}
         
-        # Walk through all subdirectories
-        for file_path in nc_dir.rglob("*.nc"):
+        # Walk through satellite/datatype/nc directories
+        for file_path in base_dir.rglob("*/*/nc/*.nc"):
             stat = file_path.stat()
             
-            # Determine layer from path
-            parts = file_path.relative_to(nc_dir).parts
-            layer_key = f"{parts[0]}_{parts[1]}" if len(parts) >= 2 else "unknown"
+            # Parse path: base_dir/satellite/datatype/nc/filename.nc
+            parts = file_path.relative_to(base_dir).parts
+            if len(parts) >= 3:
+                satellite = parts[0]      # sentinel3a, sentinel3b
+                data_type = parts[1]      # sst, chl
+                layer_key = f"{satellite}_{data_type}"
+            else:
+                layer_key = "unknown"
             
             files.append({
                 "filename": file_path.name,
                 "layer": layer_key,
+                "satellite": satellite if len(parts) >= 3 else "unknown",
+                "data_type": data_type if len(parts) >= 3 else "unknown",
                 "size_bytes": stat.st_size,
                 "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
                 "path": str(file_path)
@@ -278,20 +285,25 @@ async def list_processed_files():
 async def list_visualizations():
     """List all generated visualization files."""
     try:
-        png_dir = processor.png_dir
-        if not png_dir.exists():
+        base_dir = processor.base_dir
+        if not base_dir.exists():
             return {"images": [], "total": 0, "by_layer": {}}
         
         images = []
         by_layer = {}
         
-        # Walk through all subdirectories
-        for file_path in png_dir.rglob("*.png"):
+        # Walk through satellite/datatype/png directories
+        for file_path in base_dir.rglob("*/*/png/*.png"):
             stat = file_path.stat()
             
-            # Determine layer from path
-            parts = file_path.relative_to(png_dir).parts
-            layer_key = f"{parts[0]}_{parts[1]}" if len(parts) >= 2 else "unknown"
+            # Parse path: base_dir/satellite/datatype/png/filename.png
+            parts = file_path.relative_to(base_dir).parts
+            if len(parts) >= 3:
+                satellite = parts[0]      # sentinel3a, sentinel3b
+                data_type = parts[1]      # sst, chl
+                layer_key = f"{satellite}_{data_type}"
+            else:
+                layer_key = "unknown"
             
             # Create relative URL for static file serving
             relative_path = file_path.relative_to(png_directory)
@@ -299,6 +311,8 @@ async def list_visualizations():
             images.append({
                 "filename": file_path.name,
                 "layer": layer_key,
+                "satellite": satellite if len(parts) >= 3 else "unknown",
+                "data_type": data_type if len(parts) >= 3 else "unknown",
                 "size_bytes": stat.st_size,
                 "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
                 "url": f"/static/images/{relative_path}"

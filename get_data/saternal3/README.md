@@ -216,26 +216,20 @@ The processor creates the following directory structure:
 
 ```
 data/eumetview_sentinel3/
-├── nc/                    # NetCDF data files
-│   ├── sentinel3a/
-│   │   ├── sst/
-│   │   └── chl/
-│   ├── sentinel3b/
-│   │   ├── sst/
-│   │   └── chl/
-│   └── daily/
-│       ├── sst/
-│       └── chl/
-└── png/                   # PNG visualizations
-    ├── sentinel3a/
-    │   ├── sst/
-    │   └── chl/
-    ├── sentinel3b/
-    │   ├── sst/
-    │   └── chl/
-    └── daily/
-        ├── sst/
-        └── chl/
+├── sentinel3a/            # Sentinel-3A satellite data
+│   ├── sst/              # Sea Surface Temperature
+│   │   ├── nc/           # NetCDF data files
+│   │   └── png/          # PNG visualizations
+│   └── chl/              # Chlorophyll concentration
+│       ├── nc/           # NetCDF data files
+│       └── png/          # PNG visualizations
+└── sentinel3b/            # Sentinel-3B satellite data
+    ├── sst/              # Sea Surface Temperature
+    │   ├── nc/           # NetCDF data files
+    │   └── png/          # PNG visualizations
+    └── chl/              # Chlorophyll concentration
+        ├── nc/           # NetCDF data files
+        └── png/          # PNG visualizations
 ```
 
 ## Error Handling

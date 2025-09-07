@@ -45,16 +45,12 @@ class EUMETViewDataProcessor:
         'sentinel3a_sst': 'copernicus__sentinel3a_slstr_l2p_sst_fullres',
         'sentinel3b_sst': 'copernicus__sentinel3b_slstr_l2p_sst_fullres',
         'sentinel3a_chl': 'copernicus__sentinel3a_olci_l2_chl_fullres',
-        'sentinel3b_chl': 'copernicus__sentinel3b_olci_l2_chl_fullres',
-        'daily_sst': 'copernicus__daily_sentinel3ab_slstr_l2p_sst_fullres',
-        'daily_chl': 'copernicus__daily_sentinel3ab_olci_l2_chl_fullres'
+        'sentinel3b_chl': 'copernicus__sentinel3b_olci_l2_chl_fullres'
     }
     
     def __init__(self, base_dir: str = "data/eumetview_sentinel3"):
-        """Initialize the processor with directory structure."""
+        """Initialize the processor with satellite/datatype/datavariant structure."""
         self.base_dir = Path(base_dir)
-        self.nc_dir = self.base_dir / "nc"
-        self.png_dir = self.base_dir / "png"
         
         # Create directories
         self._setup_directories()
@@ -64,16 +60,24 @@ class EUMETViewDataProcessor:
         self.token = None
         
     def _setup_directories(self):
-        """Create necessary directories."""
-        for directory in [self.base_dir, self.nc_dir, self.png_dir]:
-            directory.mkdir(parents=True, exist_ok=True)
-            
-        # Create subdirectories for each data type
-        for layer_name in ['sentinel3a', 'sentinel3b']:
+        """Create satellite/datatype/datavariant directory structure."""
+        # Create base directory
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create subdirectories: satellite/datatype/nc and satellite/datatype/png
+        for satellite in ['sentinel3a', 'sentinel3b']:
             for data_type in ['sst', 'chl']:
-                (self.nc_dir / layer_name / data_type).mkdir(parents=True, exist_ok=True)
-                (self.png_dir / layer_name / data_type).mkdir(parents=True, exist_ok=True)
+                # Create satellite/datatype/nc and satellite/datatype/png
+                (self.base_dir / satellite / data_type / "nc").mkdir(parents=True, exist_ok=True)
+                (self.base_dir / satellite / data_type / "png").mkdir(parents=True, exist_ok=True)
 
+    def get_nc_path(self, satellite: str, data_type: str, filename: str) -> Path:
+        """Get NC file path: satellite/datatype/nc/filename"""
+        return self.base_dir / satellite / data_type / "nc" / filename
+    
+    def get_png_path(self, satellite: str, data_type: str, filename: str) -> Path:
+        """Get PNG file path: satellite/datatype/png/filename"""
+        return self.base_dir / satellite / data_type / "png" / filename
     
     
     def authenticate(self, consumer_key: Optional[str] = None, consumer_secret: Optional[str] = None):
@@ -218,11 +222,11 @@ class EUMETViewDataProcessor:
         # Make WCS request
         output = self.wcs.getCoverage(**payload)
         
-        # Determine output file path
+        # Determine output file path using satellite/datatype/nc structure
         satellite, data_type = self._parse_layer_key(layer_key)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{satellite}_{data_type}_{timestamp}.nc"
-        file_path = self.nc_dir / satellite / data_type / filename
+        filename = f"{timestamp}.nc"
+        file_path = self.get_nc_path(satellite, data_type, filename)
         
         # Save data
         with open(file_path, 'wb') as f:
@@ -236,8 +240,6 @@ class EUMETViewDataProcessor:
             satellite = 'sentinel3a'
         elif 'sentinel3b' in layer_key:
             satellite = 'sentinel3b'
-        elif 'daily' in layer_key:
-            satellite = 'daily'
         else:
             satellite = 'unknown'
         
@@ -379,8 +381,8 @@ class EUMETViewDataProcessor:
         
         plt.tight_layout()
         
-        # Save plot
-        png_path = self.png_dir / satellite / data_type / f"{timestamp}.png"
+        # Save plot using satellite/datatype/png structure
+        png_path = self.get_png_path(satellite, data_type, f"{timestamp}.png")
         plt.savefig(png_path, dpi=150, bbox_inches='tight')
         plt.close()
         
@@ -425,8 +427,8 @@ class EUMETViewDataProcessor:
                 
                 plt.tight_layout()
                 
-                # Save plot
-                png_path = self.png_dir / satellite / data_type / f"{file_time_str}.png"
+                # Save plot using satellite/datatype/png structure
+                png_path = self.get_png_path(satellite, data_type, f"{file_time_str}.png")
                 plt.savefig(png_path, dpi=150, bbox_inches='tight')
                 plt.close()
                 
@@ -549,8 +551,6 @@ class EUMETViewFileMonitor:
         """
         self.processor = processor
         self.base_dir = processor.base_dir
-        self.nc_dir = processor.nc_dir
-        self.png_dir = processor.png_dir
         
     def check_file_status(self, nc_file_path: str) -> dict:
         """
@@ -582,8 +582,12 @@ class EUMETViewFileMonitor:
         print(f"✓ NC file found: {nc_file_path}")
         print(f"✓ NC file modified: {nc_modified_datetime}")
         
-        # Check PNG files in the same directory structure
-        png_dir = nc_path.parent.parent.parent / "png" / nc_path.parent.parent.name / nc_path.parent.name
+        # Check PNG files in the same satellite/datatype structure
+        # nc_path format: base_dir/satellite/datatype/nc/filename.nc
+        # png_dir format: base_dir/satellite/datatype/png/
+        satellite = nc_path.parent.parent.parent.name  # satellite name
+        data_type = nc_path.parent.parent.name         # datatype name
+        png_dir = self.base_dir / satellite / data_type / "png"
         png_count = 0
         oldest_png_time = float('inf')
         
@@ -691,9 +695,9 @@ class EUMETViewFileMonitor:
                     }
                 
                 # Parse satellite and data type from file path
-                satellite, data_type = self.processor._parse_layer_key(
-                    nc_path.parent.parent.name + "_" + nc_path.parent.name
-                )
+                # nc_path format: base_dir/satellite/datatype/nc/filename.nc
+                satellite = nc_path.parent.parent.parent.name  # satellite name
+                data_type = nc_path.parent.parent.name         # datatype name
                 
                 png_generated = 0
                 
