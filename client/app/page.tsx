@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { 
-  RefreshCw, 
-  Map as MapIcon, 
-  Plus,
+import Image from "next/image";
+import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  RefreshCw,
+  Map as MapIcon,
   Calendar,
   Thermometer,
   Waves,
@@ -15,240 +15,259 @@ import {
   Activity,
   Maximize2,
   Minimize2,
-  X
-} from 'lucide-react';
-import { ResearchMap } from '@/components/ResearchMap';
-import { ParameterSelector } from '@/components/ParameterSelector';
-import { TimelineSlider } from '@/components/TimelineSlider';
-import { useDataStore } from '@/hooks/useDataStore';
-import { Parameter, TimeRange, MapInstance } from '@/types/research';
+  X,
+} from "lucide-react";
+import { ResearchMap } from "@/components/ResearchMap";
+import { ParameterSelector } from "@/components/ParameterSelector";
+import { TimelineSlider } from "@/components/TimelineSlider";
+import { useDataStore } from "@/hooks/useDataStore";
+import { Parameter, TimeRange, MapInstance } from "@/types/research";
 
 export default function NingalooResearchApp() {
   const [mapInstances, setMapInstances] = useState<MapInstance[]>([
-    { id: '1', parameter: 'ssth', title: 'Sea Surface Temperature (Himawari)' }
+    { id: "1", parameter: "ssth", title: "Sea Surface Temperature (Himawari)" },
   ]);
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>({
-    start: new Date('2025-03-01T00:00:00Z'),
-    end: new Date('2025-03-01T12:00:00Z'),
-    granularity: 'hours'
+    start: new Date("2025-03-01T00:00:00Z"),
+    end: new Date("2025-03-01T12:00:00Z"),
+    granularity: "hours",
   });
   const [expandedParams, setExpandedParams] = useState(false);
   const [fullscreenMap, setFullscreenMap] = useState<string | null>(null);
-  
+
   const { lastUpdate, isUpdating, updateData, missingFiles } = useDataStore();
 
   const availableParameters: Parameter[] = [
-    { 
-      id: 'ssth', 
-      name: 'Sea Surface Temperature (Himawari) ', 
-      unit: '°C', 
-      color: '#ef4444',
-      icon: <Thermometer className="h-4 w-4" />
-    },
-    { 
-      id: 'sst-s3a',
-      name: 'Sea Surface Temperature (Sentinel-3A)',
-      unit: '°C',
-      color: '#ef4444',
-      icon: <Thermometer className="h-4 w-4" />
-    },
-    { 
-      id: 'sst-s3b',
-      name: 'Sea Surface Temperature (Sentinel-3B)',
-      unit: '°C',
-      color: '#ef4444',
-      icon: <Thermometer className="h-4 w-4" />
-    },
-    { 
-      id: 'chl-s3a',
-      name: 'Chlorophyll-a (Sentinel-3A)',
-      unit: 'mg/m³',
-      color: '#22c55e',
-      icon: <Activity className="h-4 w-4" />
-    },
-    { 
-      id: 'chl-s3b',
-      name: 'Chlorophyll-a (Sentinel-3B)',
-      unit: 'mg/m³',
-      color: '#22c55e',
-      icon: <Activity className="h-4 w-4" />
-    },
-  
-    // ✅ Sentinel-2（A/B ；prodcut L2A， val-B02）
-    { 
-      id: 'b02-s2a',
-      name: 'B02 Reflectance (Sentinel-2A L2A)',
-      unit: 'reflectance',
-      color: '#8b5cf6',
-      icon: <Eye className="h-4 w-4" />
-    },
-    { 
-      id: 'b02-s2b',
-      name: 'B02 Reflectance (Sentinel-2B L2A)',
-      unit: 'reflectance',
-      color: '#8b5cf6',
-      icon: <Eye className="h-4 w-4" />
-    },
-  
-    // ✅ SWOT SSH（SWOT_L3_LR_SSH，变量：ssha_filtered/ugos_filtered/vgos_filtered）
-    { 
-      id: 'ssha-swot',
-      name: 'Sea Surface Height Anomaly (SWOT, ssha_filtered)',
-      unit: 'm',
-      color: '#3b82f6',
-      icon: <Waves className="h-4 w-4" />
-    }
+    { id: "ssth", name: "Sea Surface Temperature (Himawari)", unit: "°C", color: "#ef4444", icon: <Thermometer className="h-4 w-4" /> },
+    { id: "sst-s3a", name: "Sea Surface Temperature (Sentinel-3A)", unit: "°C", color: "#ef4444", icon: <Thermometer className="h-4 w-4" /> },
+    { id: "sst-s3b", name: "Sea Surface Temperature (Sentinel-3B)", unit: "°C", color: "#ef4444", icon: <Thermometer className="h-4 w-4" /> },
+    { id: "chl-s3a", name: "Chlorophyll-a (Sentinel-3A)", unit: "mg/m³", color: "#22c55e", icon: <Activity className="h-4 w-4" /> },
+    { id: "chl-s3b", name: "Chlorophyll-a (Sentinel-3B)", unit: "mg/m³", color: "#22c55e", icon: <Activity className="h-4 w-4" /> },
+    { id: "b02-s2a", name: "B02 Reflectance (Sentinel-2A L2A)", unit: "reflectance", color: "#8b5cf6", icon: <Eye className="h-4 w-4" /> },
+    { id: "b02-s2b", name: "B02 Reflectance (Sentinel-2B L2A)", unit: "reflectance", color: "#8b5cf6", icon: <Eye className="h-4 w-4" /> },
+    { id: "ssha-swot", name: "Sea Surface Height Anomaly (SWOT, ssha_filtered)", unit: "m", color: "#3b82f6", icon: <Waves className="h-4 w-4" /> },
   ];
 
+  // Cap at 4 instances
   const addMapInstance = (parameter: string) => {
-    const param = availableParameters.find(p => p.id === parameter);
-    if (param) {
-      const newInstance: MapInstance = {
-        id: Date.now().toString(),
-        parameter,
-        title: param.name
-      };
-      setMapInstances([...mapInstances, newInstance]);
-    }
+    if (mapInstances.length >= 4) return;
+    const param = availableParameters.find((p) => p.id === parameter);
+    if (!param) return;
+    const newInstance: MapInstance = {
+      id: Date.now().toString(),
+      parameter,
+      title: param.name,
+    };
+    setMapInstances((prev) => [...prev, newInstance]);
   };
 
   const removeMapInstance = (id: string) => {
-    if (mapInstances.length > 1) {
-      setMapInstances(mapInstances.filter(instance => instance.id !== id));
-    }
+    if (mapInstances.length <= 1) return;
+    setMapInstances((prev) => prev.filter((m) => m.id !== id));
+    if (fullscreenMap === id) setFullscreenMap(null);
   };
 
   const updateMapParameter = (id: string, parameter: string) => {
-    const param = availableParameters.find(p => p.id === parameter);
-    if (param) {
-      setMapInstances(mapInstances.map(instance => 
-        instance.id === id 
-          ? { ...instance, parameter, title: param.name }
-          : instance
-      ));
-    }
+    const param = availableParameters.find((p) => p.id === parameter);
+    if (!param) return;
+    setMapInstances((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, parameter, title: param.name } : m))
+    );
   };
 
   const toggleFullscreen = (mapId: string) => {
-    setFullscreenMap(fullscreenMap === mapId ? null : mapId);
+    setFullscreenMap((cur) => (cur === mapId ? null : mapId));
+  };
+
+  // ===== Layout helpers =====
+  const gridClass = useMemo(() => {
+    const n = mapInstances.length;
+    if (n <= 1) return "grid grid-cols-1 gap-6";
+    if (n === 2) return "grid grid-cols-2 gap-6";
+    if (n === 3) return "grid grid-cols-2 grid-rows-2 gap-6";
+    return "grid grid-cols-2 grid-rows-2 gap-6"; // 4
+  }, [mapInstances.length]);
+
+  // For 3 maps: first map spans both columns in first row, next two in second row
+  const cellSpan = (n: number, idx: number) => {
+    if (n === 3 && idx === 0) return "col-span-2 row-span-1";
+    return "";
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+    <div
+      className="min-h-screen"
+      style={{
+        background: "linear-gradient(135deg, #031d2e 0%, #063b4a 40%, #0c6b7b 70%, #0a2e4c 100%)",
+        backgroundAttachment: "fixed",
+      }}
+    >
+      {/* Fullscreen Overlay */}
+      {fullscreenMap && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-6">
+          <Card className="w-full h-full max-w-7xl overflow-hidden bg-white/85 backdrop-blur-md border border-white/20 shadow-xl flex flex-col">
+            <CardHeader className="relative pb-4 flex items-center justify-center border-b">
+              <CardTitle className="text-xl font-semibold text-slate-800 flex items-center gap-3">
+                <MapIcon className="h-6 w-6 flex-shrink-0" />
+                <span className="truncate">
+                  {mapInstances.find((m) => m.id === fullscreenMap)?.title}
+                </span>
+              </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setFullscreenMap(null)}
+                className="absolute right-4 top-3 h-9 w-9 p-0 hover:bg-gray-100"
+                title="Exit Fullscreen"
+              >
+                <Minimize2 className="h-4 w-4" />
+              </Button>
+            </CardHeader>
+            <CardContent className="flex-1 flex flex-col p-4">
+              {mapInstances
+                .filter((m) => m.id === fullscreenMap)
+                .map((m) => (
+                  <div key={m.id} className="h-full rounded-lg border border-slate-300 shadow-sm overflow-hidden">
+                    <ResearchMap
+                      parameter={m.parameter}
+                      timeRange={selectedTimeRange}
+                      availableParameters={availableParameters}
+                    />
+                  </div>
+                ))}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       <div className="container mx-auto px-4 py-6 space-y-6">
         {/* Header */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
-              <div className="p-2 bg-blue-600 rounded-lg">
-                <Waves className="h-6 w-6 text-white" />
+            <div className="flex items-center gap-3">
+              <Image
+                src="/uwa-logo.jpg"
+                alt="App Logo"
+                width={150}
+                height={50}
+                className="rounded-md shadow-md ring-1 ring-white/30"
+                priority
+              />
+              <div>
+                <span className="text-2xl sm:text-3xl font-bold text-white block">
+                  Ningaloo Reef Research Cruise
+                </span>
+                <p className="text-gray-200 mt-1">
+                  Marine ecosystem data visualization and analysis platform
+                </p>
               </div>
-              Ningaloo Reef Research Cruise
-            </h1>
-            <p className="text-slate-600 mt-1">
-              Marine ecosystem data visualization and analysis platform
-            </p>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            <div className="text-sm text-slate-600">
-              Last update: {lastUpdate ? new Date(lastUpdate).toLocaleString() : 'Never'}
             </div>
-            <Button 
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-sm text-gray-200">
+              Last update: {lastUpdate ? new Date(lastUpdate).toLocaleString() : "Never"}
+            </div>
+            <Button
               onClick={updateData}
               disabled={isUpdating}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
+              className="bg-cyan-600 hover:bg-cyan-700 text-white shadow-sm"
             >
-              <RefreshCw className={`h-4 w-4 mr-2 ${isUpdating ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 mr-2 ${isUpdating ? "animate-spin" : ""}`} />
               Update Data
             </Button>
-            {missingFiles > 0 && (
-              <Badge variant="destructive">
-                {missingFiles} missing files
-              </Badge>
-            )}
+            {missingFiles > 0 && <Badge variant="destructive">{missingFiles} missing files</Badge>}
           </div>
         </div>
 
-        {/* Parameter Selector */}
-        <ParameterSelector 
-          parameters={availableParameters}
-          expanded={expandedParams}
-          onToggle={() => setExpandedParams(!expandedParams)}
-          onAddMap={addMapInstance}
-        />
+        {/* Data Parameters (transparent glass + light text) */}
+        <Card className="bg-white/10 backdrop-blur-md border border-white/20 shadow-xl text-white">
+          <CardContent className="p-0">
+            <ParameterSelector
+              parameters={availableParameters}
+              expanded={expandedParams}
+              onToggle={() => setExpandedParams((v) => !v)}
+              onAddMap={addMapInstance}
+              mapCount={mapInstances.length}
+            />
+          </CardContent>
+        </Card>
 
         {/* Maps Grid */}
-        <div className="flex gap-6 overflow-x-auto pb-4">
+        <div className={gridClass}>
           {mapInstances.map((instance, index) => (
-            <Card key={instance.id} className="flex-shrink-0 w-96 overflow-hidden shadow-lg border-0 bg-white/80 backdrop-blur">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                    <MapIcon className="h-5 w-5" />
-                    {instance.title}
-                  </CardTitle>
-                  <div className="flex items-center gap-2">
-                    <select 
-                      value={instance.parameter}
-                      onChange={(e) => updateMapParameter(instance.id, e.target.value)}
-                      className="text-sm border border-slate-200 rounded px-2 py-1 bg-white"
-                    >
-                      {availableParameters.map(param => (
-                        <option key={param.id} value={param.id}>
-                          {param.name}
-                        </option>
-                      ))}
-                    </select>
-                    {mapInstances.length > 1 && (
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => removeMapInstance(instance.id)}
-                        className="h-8 w-8 p-0"
+            <div key={instance.id} className={cellSpan(mapInstances.length, index)}>
+              <Card className="w-full h-full overflow-hidden bg-white/10 backdrop-blur-md border border-white/20 shadow-xl text-white flex flex-col">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle className="flex items-center gap-2 min-w-0">
+                      <MapIcon className="h-5 w-5 flex-shrink-0" />
+                      <select
+                        value={instance.parameter}
+                        onChange={(e) => updateMapParameter(instance.id, e.target.value)}
+                        className="text-sm font-semibold border-0 bg-white/10 text-white rounded px-2 py-1 truncate outline-none focus:ring-2 focus:ring-cyan-400"
+                        aria-label="Select parameter"
                       >
-                        ×
+                        {availableParameters.map((p) => (
+                          <option key={p.id} value={p.id} className="text-black">
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </CardTitle>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => toggleFullscreen(instance.id)}
+                        className="h-8 w-8 p-0 text-black hover:bg-gray-100"
+                        title="Fullscreen"
+                      >
+                        <Maximize2 className="h-4 w-4" />
                       </Button>
-                    )}
+                      {mapInstances.length > 1 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => removeMapInstance(instance.id)}
+                          className="h-8 w-8 p-0 text-black hover:bg-red-600/10 hover:text-red-600"
+                          title="Close"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <ResearchMap 
-                  parameter={instance.parameter}
-                  timeRange={selectedTimeRange}
-                  availableParameters={availableParameters}
-                  onClose={() => removeMapInstance(instance.id)}
-                />
-              </CardContent>
-            </Card>
+                </CardHeader>
+
+                <CardContent className="pt-0 h-full flex flex-col">
+                  <div className="h-full min-h-[320px]">
+                    <ResearchMap
+                      parameter={instance.parameter}
+                      timeRange={selectedTimeRange}
+                      availableParameters={availableParameters}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           ))}
         </div>
 
-        {/* Add Map Button */}
-        <div className={`flex justify-center ${fullscreenMap ? 'hidden' : ''}`}>
-          <Button 
-            variant="outline"
-            onClick={() => addMapInstance('ssth')}
-            className="border-dashed border-2 border-slate-300 hover:border-blue-500 hover:bg-blue-50"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Map Instance
-          </Button>
-        </div>
-
-        {/* Timeline Slider */}
-        <Card className={`bg-white/80 backdrop-blur border-0 shadow-lg ${fullscreenMap ? 'hidden' : ''}`}>
+        {/* Timeline */}
+        <Card className="bg-white/10 backdrop-blur-md border border-white/20 shadow-xl text-white">
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+            <CardTitle className="text-lg font-semibold flex items-center gap-2">
               <Calendar className="h-5 w-5" />
               Temporal Analysis
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <TimelineSlider 
+            {/* new prop to theme the slider/buttons */}
+            <TimelineSlider
               timeRange={selectedTimeRange}
               onChange={setSelectedTimeRange}
+              variant="glass"
             />
           </CardContent>
         </Card>
