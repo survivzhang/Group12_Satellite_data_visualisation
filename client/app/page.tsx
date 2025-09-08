@@ -218,6 +218,7 @@ export default function NingalooResearchApp() {
                   parameter={instance.parameter}
                   timeRange={selectedTimeRange}
                   availableParameters={availableParameters}
+                  onClose={() => removeMapInstance(instance.id)}
                 />
               </CardContent>
             </Card>
