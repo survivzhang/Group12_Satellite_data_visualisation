@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Parameter, TimeRange } from '@/types/research';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { MapPin, Layers, Zap, Image as ImageIcon } from 'lucide-react';
+import { MapPin, Zap, Image as ImageIcon } from 'lucide-react';
 
 interface ResearchMapProps {
   parameter: string;
@@ -160,19 +160,6 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
         )}
       </div>
 
-      {/* Legend */}
-      <div className="absolute bottom-4 right-4 bg-white/90 backdrop-blur rounded-lg p-3">
-        <div className="text-xs font-medium text-slate-700 mb-2 flex items-center gap-1">
-          <Layers className="h-3 w-3" />
-          Range
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-16 h-2 rounded-full bg-gradient-to-r from-blue-200 to-red-500"></div>
-          <span className="text-xs text-slate-600">
-            {currentParam?.unit}
-          </span>
-        </div>
-      </div>
 
       {/* Live indicator */}
       <div className="absolute top-4 right-16">
