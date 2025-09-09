@@ -48,9 +48,13 @@ class EUMETViewDataProcessor:
         'sentinel3b_chl': 'copernicus__sentinel3b_olci_l2_chl_fullres'
     }
     
-    def __init__(self, base_dir: str = "data/eumetview_sentinel3"):
-        """Initialize the processor with satellite/datatype/datavariant structure."""
-        self.base_dir = Path(base_dir)
+    def __init__(self, base_dir: str = "data"):
+        """Initialize the processor with unified directory structure."""
+        self.unified_base_dir = Path(base_dir)
+        
+        # Legacy directory for backward compatibility
+        self.legacy_base_dir = Path("saternal3/data/eumetview_sentinel3")
+        self.base_dir = self.legacy_base_dir  # Keep for backward compatibility
         
         # Create directories
         self._setup_directories()
@@ -60,24 +64,33 @@ class EUMETViewDataProcessor:
         self.token = None
         
     def _setup_directories(self):
-        """Create satellite/datatype/datavariant directory structure."""
-        # Create base directory
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create subdirectories: satellite/datatype/nc and satellite/datatype/png
+        """Create directory structure for both unified and legacy layouts."""
+        # Create unified directories: data/{satellite}/{parameter}/{file_type}/
         for satellite in ['sentinel3a', 'sentinel3b']:
             for data_type in ['sst', 'chl']:
-                # Create satellite/datatype/nc and satellite/datatype/png
-                (self.base_dir / satellite / data_type / "nc").mkdir(parents=True, exist_ok=True)
-                (self.base_dir / satellite / data_type / "png").mkdir(parents=True, exist_ok=True)
+                # Create unified structure
+                (self.unified_base_dir / satellite / data_type / "nc").mkdir(parents=True, exist_ok=True)
+                (self.unified_base_dir / satellite / data_type / "png").mkdir(parents=True, exist_ok=True)
+                
+                # Create legacy structure for backward compatibility
+                (self.legacy_base_dir / satellite / data_type / "nc").mkdir(parents=True, exist_ok=True)
+                (self.legacy_base_dir / satellite / data_type / "png").mkdir(parents=True, exist_ok=True)
 
     def get_nc_path(self, satellite: str, data_type: str, filename: str) -> Path:
-        """Get NC file path: satellite/datatype/nc/filename"""
-        return self.base_dir / satellite / data_type / "nc" / filename
+        """Get NC file path: use unified structure for new files"""
+        return self.unified_base_dir / satellite / data_type / "nc" / filename
     
     def get_png_path(self, satellite: str, data_type: str, filename: str) -> Path:
-        """Get PNG file path: satellite/datatype/png/filename"""
-        return self.base_dir / satellite / data_type / "png" / filename
+        """Get PNG file path: use unified structure for new files"""
+        return self.unified_base_dir / satellite / data_type / "png" / filename
+    
+    def get_legacy_nc_path(self, satellite: str, data_type: str, filename: str) -> Path:
+        """Get legacy NC file path for backward compatibility"""
+        return self.legacy_base_dir / satellite / data_type / "nc" / filename
+    
+    def get_legacy_png_path(self, satellite: str, data_type: str, filename: str) -> Path:
+        """Get legacy PNG file path for backward compatibility"""
+        return self.legacy_base_dir / satellite / data_type / "png" / filename
     
     
     def authenticate(self, consumer_key: Optional[str] = None, consumer_secret: Optional[str] = None):

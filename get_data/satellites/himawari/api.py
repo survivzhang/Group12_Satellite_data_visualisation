@@ -29,14 +29,25 @@ class HimawariAPI(BaseSatelliteAPI):
     """Himawari satellite API implementation"""
     
     def __init__(self):
-        # Base directory for Himawari data
-        base_dir = Path(__file__).parent.parent.parent / "himawari_test_data" / "data" / "himawari_l3c"
-        super().__init__("Himawari-9", str(base_dir))
+        # Use unified directory structure: data/himawari/sst/
+        unified_base_dir = Path(__file__).parent.parent.parent / "data" / "himawari" / "sst"
+        super().__init__("Himawari-9", str(unified_base_dir))
         
-        # Directory paths
-        self.parts_dir = self.base_dir / "parts"
+        # Directory paths for unified structure
+        self.nc_dir = self.base_dir / "nc"  # renamed from parts_dir
         self.png_dir = self.base_dir / "png"
         self.temp_dir = self.base_dir / "temp"
+        
+        # Legacy directory paths for backward compatibility
+        self.legacy_base_dir = Path(__file__).parent.parent.parent / "himawari_test_data" / "data" / "himawari_l3c"
+        self.legacy_parts_dir = self.legacy_base_dir / "parts"
+        self.legacy_png_dir = self.legacy_base_dir / "png"
+        self.legacy_temp_dir = self.legacy_base_dir / "temp"
+        
+        # Create unified directories
+        self.nc_dir.mkdir(parents=True, exist_ok=True)
+        self.png_dir.mkdir(parents=True, exist_ok=True)
+        self.temp_dir.mkdir(parents=True, exist_ok=True)
         
         # Try to import Himawari modules
         self.processor = None
@@ -76,11 +87,11 @@ class HimawariAPI(BaseSatelliteAPI):
         if self._available is not None:
             return self._available
         
-        # Check if modules are loaded and directories exist
+        # Check if modules are loaded and directories exist (either unified or legacy)
         self._available = (
             self.processor is not None and
-            self.parts_dir.exists() and
-            self.png_dir.exists()
+            (self.nc_dir.exists() or self.legacy_parts_dir.exists()) and
+            (self.png_dir.exists() or self.legacy_png_dir.exists())
         )
         return self._available
     
@@ -104,9 +115,9 @@ class HimawariAPI(BaseSatelliteAPI):
         """Get detailed system status"""
         system_info = SystemInfo(**get_system_info())
         
-        # Data status
-        nc_files = get_file_count(self.parts_dir, "*.nc")
-        png_files = get_file_count(self.png_dir, "*.png")
+        # Data status - count files from both unified and legacy directories
+        nc_files = get_file_count(self.nc_dir, "*.nc") + get_file_count(self.legacy_parts_dir, "*.nc")
+        png_files = get_file_count(self.png_dir, "*.png") + get_file_count(self.legacy_png_dir, "*.png")
         
         data_status = DataStatus(
             nc_files=nc_files,
@@ -130,32 +141,46 @@ class HimawariAPI(BaseSatelliteAPI):
         )
     
     async def list_files(self, satellite: str, parameter: str, file_type: str) -> List[FileInfo]:
-        """List files for Himawari satellite"""
+        """List files for Himawari satellite from both unified and legacy directories"""
         files = []
         
+        # Determine directories to check
+        directories = []
+        pattern = f"*.{file_type}"
+        
         if file_type == "nc":
-            directory = self.parts_dir
-            pattern = "*.nc"
+            directories = [self.nc_dir, self.legacy_parts_dir]
         elif file_type == "png":
-            directory = self.png_dir
-            pattern = "*.png"
+            directories = [self.png_dir, self.legacy_png_dir]
         else:
             return files
         
-        if not directory.exists():
-            return files
-        
-        for file_path in directory.glob(pattern):
-            file_info = self._create_file_info(file_path, satellite, parameter, file_type)
-            files.append(file_info)
+        # Collect files from all directories
+        seen_filenames = set()  # Avoid duplicates
+        for directory in directories:
+            if directory.exists():
+                for file_path in directory.glob(pattern):
+                    if file_path.name not in seen_filenames:
+                        file_info = self._create_file_info(file_path, satellite, parameter, file_type)
+                        files.append(file_info)
+                        seen_filenames.add(file_path.name)
         
         # Sort by modification time (newest first)
         files.sort(key=lambda x: x.modified, reverse=True)
         return files
     
     async def get_nc_file_path(self, satellite: str, parameter: str, filename: str) -> Path:
-        """Get NC file path for Himawari"""
-        return self.parts_dir / filename
+        """Get NC file path for Himawari - try unified first, then legacy"""
+        unified_path = self.nc_dir / filename
+        if unified_path.exists():
+            return unified_path
+        
+        legacy_path = self.legacy_parts_dir / filename
+        if legacy_path.exists():
+            return legacy_path
+        
+        # Default to unified path for new files
+        return unified_path
     
     async def process_data(self, request: ProcessingRequest, background_tasks: BackgroundTasks) -> ProcessingStatus:
         """Process Himawari data"""
@@ -297,15 +322,35 @@ class HimawariAPI(BaseSatelliteAPI):
         """List NC files directly from filesystem"""
         try:
             files = []
-            if self.parts_dir.exists():
-                for file_path in self.parts_dir.glob("*.nc"):
-                    stat = file_path.stat()
-                    files.append({
-                        "filename": file_path.name,
-                        "size_bytes": stat.st_size,
-                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                        "path": str(file_path)
-                    })
+            seen_filenames = set()
+            
+            # Check unified directory first
+            if self.nc_dir.exists():
+                for file_path in self.nc_dir.glob("*.nc"):
+                    if file_path.name not in seen_filenames:
+                        stat = file_path.stat()
+                        files.append({
+                            "filename": file_path.name,
+                            "size_bytes": stat.st_size,
+                            "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                            "path": str(file_path),
+                            "location": "unified"
+                        })
+                        seen_filenames.add(file_path.name)
+            
+            # Check legacy directory for additional files
+            if self.legacy_parts_dir.exists():
+                for file_path in self.legacy_parts_dir.glob("*.nc"):
+                    if file_path.name not in seen_filenames:
+                        stat = file_path.stat()
+                        files.append({
+                            "filename": file_path.name,
+                            "size_bytes": stat.st_size,
+                            "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                            "path": str(file_path),
+                            "location": "legacy"
+                        })
+                        seen_filenames.add(file_path.name)
             
             files.sort(key=lambda x: x["modified"], reverse=True)
             return {"files": files, "total": len(files)}
@@ -316,15 +361,35 @@ class HimawariAPI(BaseSatelliteAPI):
         """List PNG files directly from filesystem"""
         try:
             images = []
+            seen_filenames = set()
+            
+            # Check unified directory first
             if self.png_dir.exists():
                 for file_path in self.png_dir.glob("*.png"):
-                    stat = file_path.stat()
-                    images.append({
-                        "filename": file_path.name,
-                        "size_bytes": stat.st_size,
-                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                        "url": f"/static/himawari/sst/png/{file_path.name}"
-                    })
+                    if file_path.name not in seen_filenames:
+                        stat = file_path.stat()
+                        images.append({
+                            "filename": file_path.name,
+                            "size_bytes": stat.st_size,
+                            "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                            "url": f"/static/himawari/sst/png/{file_path.name}",
+                            "location": "unified"
+                        })
+                        seen_filenames.add(file_path.name)
+            
+            # Check legacy directory for additional files
+            if self.legacy_png_dir.exists():
+                for file_path in self.legacy_png_dir.glob("*.png"):
+                    if file_path.name not in seen_filenames:
+                        stat = file_path.stat()
+                        images.append({
+                            "filename": file_path.name,
+                            "size_bytes": stat.st_size,
+                            "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                            "url": f"/static/himawari/sst/png/{file_path.name}",
+                            "location": "legacy"
+                        })
+                        seen_filenames.add(file_path.name)
             
             images.sort(key=lambda x: x["modified"], reverse=True)
             return {"images": images, "total": len(images)}
@@ -334,15 +399,33 @@ class HimawariAPI(BaseSatelliteAPI):
     async def _list_processed_files(self) -> Dict[str, Any]:
         """List processed files using processor"""
         files = []
-        if self.parts_dir.exists():
-            for file_path in self.parts_dir.glob("*.nc"):
-                stat = file_path.stat()
-                files.append({
-                    "filename": file_path.name,
-                    "size_bytes": stat.st_size,
-                    "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                    "path": str(file_path)
-                })
+        seen_filenames = set()
+        
+        # Check unified directory first
+        if self.nc_dir.exists():
+            for file_path in self.nc_dir.glob("*.nc"):
+                if file_path.name not in seen_filenames:
+                    stat = file_path.stat()
+                    files.append({
+                        "filename": file_path.name,
+                        "size_bytes": stat.st_size,
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "path": str(file_path)
+                    })
+                    seen_filenames.add(file_path.name)
+        
+        # Check legacy directory for additional files
+        if self.legacy_parts_dir.exists():
+            for file_path in self.legacy_parts_dir.glob("*.nc"):
+                if file_path.name not in seen_filenames:
+                    stat = file_path.stat()
+                    files.append({
+                        "filename": file_path.name,
+                        "size_bytes": stat.st_size,
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "path": str(file_path)
+                    })
+                    seen_filenames.add(file_path.name)
         
         files.sort(key=lambda x: x["modified"], reverse=True)
         return {"files": files, "total": len(files)}
@@ -350,15 +433,33 @@ class HimawariAPI(BaseSatelliteAPI):
     async def _list_visualizations(self) -> Dict[str, Any]:
         """List visualizations using processor"""
         images = []
+        seen_filenames = set()
+        
+        # Check unified directory first
         if self.png_dir.exists():
             for file_path in self.png_dir.glob("*.png"):
-                stat = file_path.stat()
-                images.append({
-                    "filename": file_path.name,
-                    "size_bytes": stat.st_size,
-                    "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                    "url": f"/static/himawari/sst/png/{file_path.name}"
-                })
+                if file_path.name not in seen_filenames:
+                    stat = file_path.stat()
+                    images.append({
+                        "filename": file_path.name,
+                        "size_bytes": stat.st_size,
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "url": f"/static/himawari/sst/png/{file_path.name}"
+                    })
+                    seen_filenames.add(file_path.name)
+        
+        # Check legacy directory for additional files
+        if self.legacy_png_dir.exists():
+            for file_path in self.legacy_png_dir.glob("*.png"):
+                if file_path.name not in seen_filenames:
+                    stat = file_path.stat()
+                    images.append({
+                        "filename": file_path.name,
+                        "size_bytes": stat.st_size,
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "url": f"/static/himawari/sst/png/{file_path.name}"
+                    })
+                    seen_filenames.add(file_path.name)
         
         images.sort(key=lambda x: x["modified"], reverse=True)
         return {"images": images, "total": len(images)}

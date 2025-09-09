@@ -15,7 +15,7 @@ interface ResearchMapProps {
   getParameterFiles?: (paramId: string, fileType: 'nc' | 'png') => Promise<any[]>;
 }
 
-// 卫星参数映射
+// 卫星参数映射 - 更新为统一数据结构
 const SATELLITE_MAPPING = {
   'ssth': { satellite: 'himawari', parameter: 'sst', staticPath: '/static/himawari/sst/png' },
   'sst-s3a': { satellite: 'sentinel3a', parameter: 'sst', staticPath: '/static/sentinel3a/sst/png' },

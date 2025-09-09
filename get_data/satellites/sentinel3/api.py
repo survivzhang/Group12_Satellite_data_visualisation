@@ -30,9 +30,12 @@ class Sentinel3API(BaseSatelliteAPI):
     """Sentinel-3 satellite API implementation"""
     
     def __init__(self):
-        # Base directory for Sentinel-3 data
-        base_dir = Path(__file__).parent.parent.parent / "saternal3" / "data" / "eumetview_sentinel3"
-        super().__init__("Sentinel-3", str(base_dir))
+        # Use unified directory structure: data/
+        unified_base_dir = Path(__file__).parent.parent.parent / "data"
+        super().__init__("Sentinel-3", str(unified_base_dir))
+        
+        # Legacy directory for backward compatibility
+        self.legacy_base_dir = Path(__file__).parent.parent.parent / "saternal3" / "data" / "eumetview_sentinel3"
         
         # Initialize processor and workflow
         self.processor = None
@@ -60,9 +63,10 @@ class Sentinel3API(BaseSatelliteAPI):
                 eumetview_module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(eumetview_module)
             
+            # Initialize processor with unified base directory
             self.processor = eumetview_module.EUMETViewDataProcessor(str(self.base_dir))
             self.workflow = eumetview_module.EUMETViewWorkflow(str(self.base_dir))
-            self.file_monitor = eumetview_module.create_file_monitor(str(self.base_dir))
+            self.file_monitor = eumetview_module.create_file_monitor(str(self.legacy_base_dir))
             print("✅ Sentinel-3 modules initialized successfully")
         except Exception as e:
             print(f"⚠️ Failed to initialize Sentinel-3 modules: {e}")
@@ -103,16 +107,23 @@ class Sentinel3API(BaseSatelliteAPI):
         """Get detailed system status"""
         system_info = SystemInfo(**get_system_info())
         
-        # Count files across all satellites and parameters
+        # Count files across all satellites and parameters from both unified and legacy directories
         nc_files = 0
         png_files = 0
         
         for satellite in ['sentinel3a', 'sentinel3b']:
             for param in ['sst', 'chl']:
-                nc_dir = self.base_dir / satellite / param / "nc"
-                png_dir = self.base_dir / satellite / param / "png"
-                nc_files += get_file_count(nc_dir, "*.nc")
-                png_files += get_file_count(png_dir, "*.png")
+                # Count from unified directories
+                unified_nc_dir = self.base_dir / satellite / param / "nc"
+                unified_png_dir = self.base_dir / satellite / param / "png"
+                nc_files += get_file_count(unified_nc_dir, "*.nc")
+                png_files += get_file_count(unified_png_dir, "*.png")
+                
+                # Count from legacy directories
+                legacy_nc_dir = self.legacy_base_dir / satellite / param / "nc"
+                legacy_png_dir = self.legacy_base_dir / satellite / param / "png"
+                nc_files += get_file_count(legacy_nc_dir, "*.nc")
+                png_files += get_file_count(legacy_png_dir, "*.png")
         
         data_status = DataStatus(
             nc_files=nc_files,
@@ -134,27 +145,48 @@ class Sentinel3API(BaseSatelliteAPI):
         )
     
     async def list_files(self, satellite: str, parameter: str, file_type: str) -> List[FileInfo]:
-        """List files for Sentinel-3 satellites"""
+        """List files for Sentinel-3 satellites from both unified and legacy directories"""
         files = []
+        seen_filenames = set()  # Avoid duplicates
         
-        # Sentinel-3 directory structure: base_dir/satellite/parameter/file_type/
-        file_dir = self.base_dir / satellite / parameter / file_type
-        
-        if not file_dir.exists():
-            return files
+        # Check unified directory first
+        unified_file_dir = self.base_dir / satellite / parameter / file_type
+        legacy_file_dir = self.legacy_base_dir / satellite / parameter / file_type
         
         pattern = f"*.{file_type}"
-        for file_path in file_dir.glob(pattern):
-            file_info = self._create_file_info(file_path, satellite, parameter, file_type)
-            files.append(file_info)
+        
+        # Collect files from unified directory
+        if unified_file_dir.exists():
+            for file_path in unified_file_dir.glob(pattern):
+                if file_path.name not in seen_filenames:
+                    file_info = self._create_file_info(file_path, satellite, parameter, file_type)
+                    files.append(file_info)
+                    seen_filenames.add(file_path.name)
+        
+        # Collect files from legacy directory
+        if legacy_file_dir.exists():
+            for file_path in legacy_file_dir.glob(pattern):
+                if file_path.name not in seen_filenames:
+                    file_info = self._create_file_info(file_path, satellite, parameter, file_type)
+                    files.append(file_info)
+                    seen_filenames.add(file_path.name)
         
         # Sort by modification time (newest first)
         files.sort(key=lambda x: x.modified, reverse=True)
         return files
     
     async def get_nc_file_path(self, satellite: str, parameter: str, filename: str) -> Path:
-        """Get NC file path for Sentinel-3"""
-        return self.base_dir / satellite / parameter / "nc" / filename
+        """Get NC file path for Sentinel-3 - try unified first, then legacy"""
+        unified_path = self.base_dir / satellite / parameter / "nc" / filename
+        if unified_path.exists():
+            return unified_path
+        
+        legacy_path = self.legacy_base_dir / satellite / parameter / "nc" / filename
+        if legacy_path.exists():
+            return legacy_path
+        
+        # Default to unified path for new files
+        return unified_path
     
     async def process_data(self, request: ProcessingRequest, background_tasks: BackgroundTasks) -> ProcessingStatus:
         """Process Sentinel-3 data"""

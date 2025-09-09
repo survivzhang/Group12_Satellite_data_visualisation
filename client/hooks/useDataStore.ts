@@ -504,7 +504,7 @@ export function useDataStore(): DataStore {
     }
   }, [downloadLatestData, isUpdating, isCheckingFiles]);
 
-  // 获取特定参数的文件列表
+  // 获取特定参数的文件列表 - 使用新的统一API路径
   const getParameterFiles = useCallback(async (paramId: string, fileType: 'nc' | 'png') => {
     try {
       const mapping = SATELLITE_MAPPING[paramId as keyof typeof SATELLITE_MAPPING];
@@ -514,7 +514,19 @@ export function useDataStore(): DataStore {
       }
 
       const { satellite, parameter } = mapping;
-      const response = await fetch(`${API_BASE_URL}/api/v1/satellites/${satellite}/${parameter}/${fileType}`);
+      
+      // 使用新的统一API路径
+      let apiPath = '';
+      if (satellite === 'himawari') {
+        apiPath = `${API_BASE_URL}/himawari/files/${fileType}`;
+      } else if (satellite.startsWith('sentinel3')) {
+        apiPath = `${API_BASE_URL}/sentinel3/files/${satellite}/${parameter}/${fileType}`;
+      } else {
+        console.warn(`Unsupported satellite: ${satellite}`);
+        return [];
+      }
+      
+      const response = await fetch(apiPath);
       
       if (response.ok) {
         const data = await response.json();
