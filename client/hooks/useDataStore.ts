@@ -227,10 +227,10 @@ export function useDataStore(): DataStore {
                 parameter: 'sst', // 先下载SST数据
                 start_time: '2025-03-01T00:00:00.000Z',
                 end_time: '2025-03-01T12:00:00.000Z',
-                west_lon: 113.0,
-                east_lon: 115.0,
-                south_lat: -24.0,
-                north_lat: -21.0,
+                west_lon: 111.0,
+                east_lon: 114.0,
+                south_lat: -25.0,
+                north_lat: -20.0,
                 layer_keys: [`${satellite}_sst`, `${satellite}_chl`] // 同时下载SST和CHL
               })
             });
