@@ -132,6 +132,7 @@ export default function NingalooResearchApp() {
                       parameter={m.parameter}
                       timeRange={selectedTimeRange}
                       availableParameters={availableParameters}
+                      isFullscreen={true}
                     />
                   </div>
                 ))}

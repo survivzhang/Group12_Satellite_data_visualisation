@@ -103,11 +103,11 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
       )}
       {/* Show PNG image for SST, otherwise show placeholder */}
       {imageUrl && parameter === 'ssth' ? (
-        <div className="absolute inset-0 w-full h-full">
+        <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-slate-800">
           <img 
             src={imageUrl}
             alt={`Sea Surface Temperature - ${currentTimestamp || 'loading'}`}
-            className="w-full h-full object-cover rounded-lg"
+            className={`${isFullscreen ? 'max-w-full max-h-full' : 'w-full h-full'} object-contain rounded-lg`}
             style={{ filter: 'contrast(1.1) brightness(1.1)' }}
           />
           {/* Overlay for better text readability */}
