@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -24,18 +24,71 @@ import { useDataStore } from "@/hooks/useDataStore";
 import { Parameter, TimeRange, MapInstance } from "@/types/research";
 
 export default function NingalooResearchApp() {
+  // Initialize with default values to avoid hydration mismatch
   const [mapInstances, setMapInstances] = useState<MapInstance[]>([
     { id: "1", parameter: "ssth", title: "Sea Surface Temperature (Himawari)" },
   ]);
+  
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>({
     start: new Date("2025-03-01T00:00:00Z"),
     end: new Date("2025-03-01T12:00:00Z"),
     granularity: "hours",
   });
+  
   const [expandedParams, setExpandedParams] = useState(false);
   const [fullscreenMap, setFullscreenMap] = useState<string | null>(null);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   const { lastUpdate, isUpdating, updateData, missingFiles } = useDataStore();
+
+  // Load saved state from localStorage after hydration
+  useEffect(() => {
+    setIsHydrated(true);
+    
+    // Load map instances
+    const storedMaps = localStorage.getItem('ningaloo-map-instances');
+    if (storedMaps) {
+      try {
+        const parsedMaps = JSON.parse(storedMaps);
+        setMapInstances(parsedMaps);
+      } catch (error) {
+        console.error('Failed to parse stored map instances:', error);
+      }
+    }
+    
+    // Load time range
+    const storedTimeRange = localStorage.getItem('ningaloo-time-range');
+    if (storedTimeRange) {
+      try {
+        const parsed = JSON.parse(storedTimeRange);
+        setSelectedTimeRange({
+          start: new Date(parsed.start),
+          end: new Date(parsed.end),
+          granularity: parsed.granularity
+        });
+      } catch (error) {
+        console.error('Failed to parse stored time range:', error);
+      }
+    }
+  }, []);
+
+  // Save map instances to localStorage whenever they change (only after hydration)
+  useEffect(() => {
+    if (isHydrated) {
+      localStorage.setItem('ningaloo-map-instances', JSON.stringify(mapInstances));
+    }
+  }, [mapInstances, isHydrated]);
+
+  // Save time range to localStorage whenever it changes (only after hydration)
+  useEffect(() => {
+    if (isHydrated) {
+      localStorage.setItem('ningaloo-time-range', JSON.stringify({
+        start: selectedTimeRange.start.toISOString(),
+        end: selectedTimeRange.end.toISOString(),
+        granularity: selectedTimeRange.granularity
+      }));
+    }
+  }, [selectedTimeRange, isHydrated]);
 
   const availableParameters: Parameter[] = [
     { id: "ssth", name: "Sea Surface Temperature (Himawari)", unit: "°C", color: "#ef4444", icon: <Thermometer className="h-4 w-4" /> },
