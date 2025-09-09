@@ -253,6 +253,16 @@ class Sentinel3API(BaseSatelliteAPI):
             return await self._get_available_layers()
         elif path == "files":
             return await self._list_processed_files()
+        elif path.startswith("files/"):
+            # Handle files/{satellite}/{parameter}/{file_type} requests
+            path_parts = path.split("/")
+            if len(path_parts) == 4:  # files/{satellite}/{parameter}/{file_type}
+                satellite = path_parts[1]
+                parameter = path_parts[2]
+                file_type = path_parts[3]
+                return await self._list_specific_files(satellite, parameter, file_type)
+            else:
+                raise HTTPException(status_code=400, detail="Invalid files path format. Expected: files/{satellite}/{parameter}/{file_type}")
         elif path == "visualizations":
             return await self._list_visualizations()
         elif path == "system-status":
@@ -428,6 +438,73 @@ class Sentinel3API(BaseSatelliteAPI):
         images.sort(key=lambda x: x["modified"], reverse=True)
         
         return {"images": images, "total": len(images), "by_layer": by_layer}
+    
+    async def _list_specific_files(self, satellite: str, parameter: str, file_type: str) -> Dict[str, Any]:
+        """List files for a specific satellite, parameter, and file type"""
+        files = []
+        seen_filenames = set()
+        
+        # Validate satellite and parameter
+        if satellite not in ['sentinel3a', 'sentinel3b']:
+            raise HTTPException(status_code=400, detail=f"Invalid satellite: {satellite}")
+        if parameter not in ['sst', 'chl']:
+            raise HTTPException(status_code=400, detail=f"Invalid parameter: {parameter}")
+        if file_type not in ['nc', 'png']:
+            raise HTTPException(status_code=400, detail=f"Invalid file type: {file_type}")
+        
+        # Check unified directory first
+        unified_dir = self.base_dir / satellite / parameter / file_type
+        if unified_dir.exists():
+            for file_path in unified_dir.glob(f"*.{file_type}"):
+                if file_path.name not in seen_filenames:
+                    stat = file_path.stat()
+                    # Create URL for static file serving
+                    if file_type == 'png':
+                        url = f"/static/{satellite}/{parameter}/png/{file_path.name}"
+                    else:
+                        url = f"/api/v1/satellites/{satellite}/{parameter}/{file_type}/{file_path.name}"
+                    
+                    files.append({
+                        "filename": file_path.name,
+                        "size_bytes": stat.st_size,
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "path": str(file_path),
+                        "url": url
+                    })
+                    seen_filenames.add(file_path.name)
+        
+        # Check legacy directory for additional files
+        legacy_dir = self.legacy_base_dir / satellite / parameter / file_type
+        if legacy_dir.exists():
+            for file_path in legacy_dir.glob(f"*.{file_type}"):
+                if file_path.name not in seen_filenames:
+                    stat = file_path.stat()
+                    # Create URL for static file serving
+                    if file_type == 'png':
+                        url = f"/static/{satellite}/{parameter}/png/{file_path.name}"
+                    else:
+                        url = f"/api/v1/satellites/{satellite}/{parameter}/{file_type}/{file_path.name}"
+                    
+                    files.append({
+                        "filename": file_path.name,
+                        "size_bytes": stat.st_size,
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "path": str(file_path),
+                        "url": url
+                    })
+                    seen_filenames.add(file_path.name)
+        
+        # Sort by modification time (newest first)
+        files.sort(key=lambda x: x["modified"], reverse=True)
+        
+        return {
+            "files": files,
+            "total_count": len(files),
+            "satellite": satellite,
+            "parameter": parameter,
+            "file_type": file_type,
+            "timestamp": datetime.now().isoformat()
+        }
     
     async def _query_available_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Query available satellite data capabilities"""

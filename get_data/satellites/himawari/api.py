@@ -245,6 +245,16 @@ class HimawariAPI(BaseSatelliteAPI):
             return {"status": health.status, "timestamp": health.timestamp}
         elif path == "files":
             return await self._list_processed_files()
+        elif path == "files/png":
+            result = await self._list_visualizations()
+            # Convert images to files format for consistency
+            return {
+                "files": result.get("images", []),
+                "total_count": result.get("total", 0),
+                "timestamp": datetime.now().isoformat()
+            }
+        elif path == "files/nc":
+            return await self._list_processed_files()
         elif path == "visualizations":
             return await self._list_visualizations()
         elif path == "system-status":
