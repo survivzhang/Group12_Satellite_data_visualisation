@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Parameter, TimeRange } from '@/types/research';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { MapPin, Layers, Zap, Image as ImageIcon } from 'lucide-react';
+import { MapPin, Zap, Image as ImageIcon } from 'lucide-react';
 
 interface ResearchMapProps {
   parameter: string;
@@ -25,7 +25,7 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
   const currentTimestamp = useMemo(() => {
     if (parameter !== 'ssth') return null;
     
-    // 确保使用UTC时间并向下舍入到最近的整点
+    // Ensure UTC time and round down to the nearest hour
     const utcDate = new Date(timeRange.start.getTime());
     utcDate.setUTCMinutes(0, 0, 0);
     
@@ -47,7 +47,7 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
     if (parameter === 'ssth' && currentTimestamp) {
       const pngUrl = `http://localhost:8000/static/images/${currentTimestamp}.png`;
       
-      // 避免重复加载相同的图片
+      // Avoid reloading the same image
       if (imageUrl === pngUrl) {
         return;
       }
@@ -90,7 +90,13 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
   }
 
   return (
-    <div className={`relative ${isFullscreen ? 'h-full' : 'h-96'} bg-gradient-to-br from-blue-900 via-blue-700 to-teal-600 rounded-lg overflow-hidden`}>
+    <div className={`relative ${isFullscreen ? 'h-full' : 'h-96'} rounded-lg overflow-hidden`} style={{
+      background: `
+        radial-gradient(ellipse at 20% 30%, #0a1a2e 0%, #16213e 40%, #1e3a8a 80%, #3b82f6 100%),
+        linear-gradient(135deg, #0f172a 0%, #1e3a8a 30%, #3b82f6 60%, #60a5fa 100%)
+      `,
+      backgroundBlendMode: "multiply, normal"
+    }}>
       {/* Close button */}
       {onClose && (
         <button
@@ -103,11 +109,17 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
       )}
       {/* Show PNG image for SST, otherwise show placeholder */}
       {imageUrl && parameter === 'ssth' ? (
-        <div className="absolute inset-0 w-full h-full">
+        <div className="absolute inset-0 w-full h-full flex items-center justify-center" style={{
+          background: `
+            radial-gradient(ellipse at center, #0a1a2e 0%, #16213e 30%, #1e3a8a 70%, #3b82f6 100%),
+            linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #3b82f6 100%)
+          `,
+          backgroundBlendMode: "multiply, normal"
+        }}>
           <img 
             src={imageUrl}
             alt={`Sea Surface Temperature - ${currentTimestamp || 'loading'}`}
-            className="w-full h-full object-cover rounded-lg"
+            className={`${isFullscreen ? 'max-w-full max-h-full' : 'w-full h-full'} object-contain rounded-lg`}
             style={{ filter: 'contrast(1.1) brightness(1.1)' }}
           />
           {/* Overlay for better text readability */}
@@ -115,7 +127,13 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
         </div>
       ) : (
         /* Placeholder for non-SST parameters or when image is not available */
-        <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-600 to-slate-800">
+        <div className="absolute inset-0 w-full h-full flex items-center justify-center" style={{
+          background: `
+            radial-gradient(ellipse at 40% 60%, #0a1a2e 0%, #16213e 40%, #1e3a8a 80%, #3b82f6 100%),
+            linear-gradient(135deg, #0f172a 0%, #1e3a8a 30%, #3b82f6 60%, #60a5fa 100%)
+          `,
+          backgroundBlendMode: "multiply, normal"
+        }}>
           <div className="text-center text-white/80">
             <div className="text-lg font-medium mb-2">
               {parameter === 'ssth' && imageError ? 'Image not available' : `${currentParam?.name} Data`}
@@ -160,19 +178,6 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
         )}
       </div>
 
-      {/* Legend */}
-      <div className="absolute bottom-4 right-4 bg-white/90 backdrop-blur rounded-lg p-3">
-        <div className="text-xs font-medium text-slate-700 mb-2 flex items-center gap-1">
-          <Layers className="h-3 w-3" />
-          Range
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-16 h-2 rounded-full bg-gradient-to-r from-blue-200 to-red-500"></div>
-          <span className="text-xs text-slate-600">
-            {currentParam?.unit}
-          </span>
-        </div>
-      </div>
 
       {/* Live indicator */}
       <div className="absolute top-4 right-16">

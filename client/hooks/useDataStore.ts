@@ -38,7 +38,7 @@ interface FileCheckResponse {
   timestamp: string;
 }
 
-// API配置
+// API configuration
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 export function useDataStore(): DataStore {
@@ -85,7 +85,7 @@ export function useDataStore(): DataStore {
       if (response.ok) {
         const data: FileCheckResponse = await response.json();
         
-        // 计算总的缺失文件数
+        // Calculate total missing files count
         const totalMissing = data.nc_files.missing.length + 
                            data.nc_files.corrupted.length + 
                            data.png_files.missing.length;
@@ -96,18 +96,18 @@ export function useDataStore(): DataStore {
         console.log('File check completed:', data.summary);
       } else {
         console.error('File check failed:', response.statusText);
-        // 如果API失败，回退到模拟检查
+        // If API fails, fallback to simulated check
         simulateFileCheck();
       }
     } catch (error) {
       console.error('Error checking files:', error);
-      // 如果网络错误，回退到模拟检查
+      // If network error, fallback to simulated check
       simulateFileCheck();
     }
   }, []);
   
   const simulateFileCheck = useCallback(() => {
-    // 备用的模拟检查（当API不可用时）
+    // Fallback simulated check (when API is unavailable)
     const expectedFiles = [
       'sst-data', 
       'chlorophyll-data', 
@@ -129,18 +129,18 @@ export function useDataStore(): DataStore {
     setIsUpdating(true);
     
     try {
-      // 首先检查文件完整性
+      // First check file integrity
       await checkMissingFiles();
       
-      // 如果有缺失文件，自动触发修复
+      // If there are missing files, automatically trigger repair
       if (missingFiles > 0) {
         console.log(`Found ${missingFiles} missing files. Starting auto repair...`);
         
-        // 自动触发修复
+        // Automatically trigger repair
         await triggerAutoRepair();
       }
       
-      // 获取系统状态
+      // Get system status
       try {
         const statusResponse = await fetch(`${API_BASE_URL}/system-status`);
         if (statusResponse.ok) {
@@ -152,7 +152,7 @@ export function useDataStore(): DataStore {
         console.warn('Could not fetch system status:', statusError);
       }
       
-      // 更新本地元数据
+      // Update local metadata
       const now = new Date().toISOString();
       const metadata = {
         lastUpdate: now,
@@ -166,7 +166,7 @@ export function useDataStore(): DataStore {
     } catch (error) {
       console.error('Failed to update data:', error);
       
-      // 如果API不可用，回退到模拟模式
+      // If API is unavailable, fallback to simulation mode
       await simulateDataUpdate();
     } finally {
       setIsUpdating(false);
@@ -177,11 +177,11 @@ export function useDataStore(): DataStore {
     try {
       console.log('Triggering automatic file repair...');
       
-      // 设置修复请求参数
+      // Set repair request parameters
       const repairRequest = {
         start_time: '2025-03-01T00:00:00',
         end_time: '2025-03-01T12:00:00',
-        west_lon: 113.0,  // Ningaloo 区域
+        west_lon: 113.0,  // Ningaloo region
         east_lon: 115.0,
         south_lat: -24.0,
         north_lat: -21.0,
@@ -202,7 +202,7 @@ export function useDataStore(): DataStore {
         const result = await response.json();
         console.log('Auto repair started:', result);
         
-        // 轮询检查修复状态
+        // Poll to check repair status
         if (result.task_id) {
           await pollRepairStatus(result.task_id);
         }
@@ -215,7 +215,7 @@ export function useDataStore(): DataStore {
   }, []);
 
   const pollRepairStatus = useCallback(async (taskId: string) => {
-    const maxPolls = 30; // 最多轮询30次（约5分钟）
+    const maxPolls = 30; // Maximum 30 polls (about 5 minutes)
     let pollCount = 0;
     
     const poll = async () => {
@@ -227,15 +227,15 @@ export function useDataStore(): DataStore {
           
           if (status.status === 'completed') {
             console.log('Auto repair completed successfully!');
-            // 重新检查文件以更新状态
+            // Re-check files to update status
             await checkMissingFiles();
             return;
           } else if (status.status === 'failed') {
             console.error('Auto repair failed:', status.message);
             return;
           } else if (status.status === 'processing' && pollCount < maxPolls) {
-            // 继续轮询
-            setTimeout(poll, 10000); // 10秒后再次检查
+            // Continue polling
+            setTimeout(poll, 10000); // Check again after 10 seconds
             pollCount++;
           }
         }
@@ -248,7 +248,7 @@ export function useDataStore(): DataStore {
   }, [checkMissingFiles]);
   
   const simulateDataUpdate = useCallback(async () => {
-    // 备用的模拟更新（当API不可用时）
+    // Fallback simulated update (when API is unavailable)
     await new Promise(resolve => setTimeout(resolve, 2000));
     
     const dataFiles = [
