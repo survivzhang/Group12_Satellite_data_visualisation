@@ -54,7 +54,7 @@ class EUMETViewDataProcessor:
         
         # Legacy directory for backward compatibility
         self.legacy_base_dir = Path("saternal3/data/eumetview_sentinel3")
-        self.base_dir = self.legacy_base_dir  # Keep for backward compatibility
+        self.base_dir = self.unified_base_dir  # Use unified structure for file operations
         
         # Create directories
         self._setup_directories()

@@ -66,7 +66,7 @@ class Sentinel3API(BaseSatelliteAPI):
             # Initialize processor with unified base directory
             self.processor = eumetview_module.EUMETViewDataProcessor(str(self.base_dir))
             self.workflow = eumetview_module.EUMETViewWorkflow(str(self.base_dir))
-            self.file_monitor = eumetview_module.create_file_monitor(str(self.legacy_base_dir))
+            self.file_monitor = eumetview_module.create_file_monitor(str(self.base_dir))
             print("✅ Sentinel-3 modules initialized successfully")
         except Exception as e:
             print(f"⚠️ Failed to initialize Sentinel-3 modules: {e}")
