@@ -25,7 +25,7 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
   const currentTimestamp = useMemo(() => {
     if (parameter !== 'ssth') return null;
     
-    // 确保使用UTC时间并向下舍入到最近的整点
+    // Ensure UTC time and round down to the nearest hour
     const utcDate = new Date(timeRange.start.getTime());
     utcDate.setUTCMinutes(0, 0, 0);
     
@@ -47,7 +47,7 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
     if (parameter === 'ssth' && currentTimestamp) {
       const pngUrl = `http://localhost:8000/static/images/${currentTimestamp}.png`;
       
-      // 避免重复加载相同的图片
+      // Avoid reloading the same image
       if (imageUrl === pngUrl) {
         return;
       }
