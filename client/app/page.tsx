@@ -151,8 +151,15 @@ export default function NingalooResearchApp() {
     <div
       className="min-h-screen"
       style={{
-        background: "linear-gradient(135deg, #031d2e 0%, #063b4a 40%, #0c6b7b 70%, #0a2e4c 100%)",
+        background: `
+          radial-gradient(ellipse at top, #0a1a2e 0%, #16213e 30%, #1e3a8a 60%, #1e40af 100%),
+          linear-gradient(135deg, #0f172a 0%, #1e3a8a 25%, #3b82f6 50%, #60a5fa 75%, #fbbf24 100%),
+          linear-gradient(45deg, #0f172a 0%, #1e3a8a 50%, #3b82f6 100%)
+        `,
         backgroundAttachment: "fixed",
+        backgroundSize: "100% 100%, 100% 100%, 100% 100%",
+        backgroundPosition: "center, center, center",
+        backgroundBlendMode: "multiply, overlay, normal"
       }}
     >
       {/* Fullscreen Overlay */}

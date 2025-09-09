@@ -90,7 +90,13 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
   }
 
   return (
-    <div className={`relative ${isFullscreen ? 'h-full' : 'h-96'} bg-gradient-to-br from-blue-900 via-blue-700 to-teal-600 rounded-lg overflow-hidden`}>
+    <div className={`relative ${isFullscreen ? 'h-full' : 'h-96'} rounded-lg overflow-hidden`} style={{
+      background: `
+        radial-gradient(ellipse at 20% 30%, #0a1a2e 0%, #16213e 40%, #1e3a8a 80%, #3b82f6 100%),
+        linear-gradient(135deg, #0f172a 0%, #1e3a8a 30%, #3b82f6 60%, #60a5fa 100%)
+      `,
+      backgroundBlendMode: "multiply, normal"
+    }}>
       {/* Close button */}
       {onClose && (
         <button
@@ -103,7 +109,13 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
       )}
       {/* Show PNG image for SST, otherwise show placeholder */}
       {imageUrl && parameter === 'ssth' ? (
-        <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-slate-800">
+        <div className="absolute inset-0 w-full h-full flex items-center justify-center" style={{
+          background: `
+            radial-gradient(ellipse at center, #0a1a2e 0%, #16213e 30%, #1e3a8a 70%, #3b82f6 100%),
+            linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #3b82f6 100%)
+          `,
+          backgroundBlendMode: "multiply, normal"
+        }}>
           <img 
             src={imageUrl}
             alt={`Sea Surface Temperature - ${currentTimestamp || 'loading'}`}
@@ -115,7 +127,13 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
         </div>
       ) : (
         /* Placeholder for non-SST parameters or when image is not available */
-        <div className="absolute inset-0 w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-600 to-slate-800">
+        <div className="absolute inset-0 w-full h-full flex items-center justify-center" style={{
+          background: `
+            radial-gradient(ellipse at 40% 60%, #0a1a2e 0%, #16213e 40%, #1e3a8a 80%, #3b82f6 100%),
+            linear-gradient(135deg, #0f172a 0%, #1e3a8a 30%, #3b82f6 60%, #60a5fa 100%)
+          `,
+          backgroundBlendMode: "multiply, normal"
+        }}>
           <div className="text-center text-white/80">
             <div className="text-lg font-medium mb-2">
               {parameter === 'ssth' && imageError ? 'Image not available' : `${currentParam?.name} Data`}
