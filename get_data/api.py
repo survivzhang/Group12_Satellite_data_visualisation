@@ -132,21 +132,6 @@ def setup_data_directories():
             print(f"✅ Created directory: {directory}")
         else:
             print(f"📁 Directory exists: {directory}")
-    
-    # Create legacy directories for backward compatibility (but warn about them)
-    legacy_dirs = [
-        Path("himawari_test_data/data/himawari_l3c/parts"),
-        Path("himawari_test_data/data/himawari_l3c/png"),
-        Path("himawari_test_data/data/himawari_l3c/temp"),
-        Path("saternal3/data/eumetview_sentinel3")
-    ]
-    
-    for directory in legacy_dirs:
-        if directory.exists():
-            print(f"⚠️ Legacy directory detected: {directory} - consider migrating data to unified structure")
-        else:
-            directory.mkdir(parents=True, exist_ok=True)
-            print(f"📁 Created legacy compatibility directory: {directory}")
 
 def setup_static_files(app: FastAPI):
     """Setup static file serving for satellite data with unified structure"""
@@ -164,33 +149,16 @@ def setup_static_files(app: FastAPI):
     
     for satellite, parameters in satellites_config.items():
         for parameter in parameters:
-            # Primary unified directory
+            # Unified directory
             unified_png_dir = base_data_dir / satellite / parameter / "png"
             mount_path = f"/static/{satellite}/{parameter}/png"
             
-            if unified_png_dir.exists() and any(unified_png_dir.glob("*.png")):
+            if unified_png_dir.exists():
                 app.mount(mount_path, StaticFiles(directory=str(unified_png_dir)), name=f"{satellite}_{parameter}_png")
                 print(f"✅ Mounted static files: {mount_path} -> {unified_png_dir}")
             else:
-                # Fallback to legacy directories for backward compatibility
-                legacy_dirs = []
-                if satellite == 'himawari':
-                    legacy_dirs = [Path("himawari_test_data/data/himawari_l3c/png")]
-                elif satellite.startswith('sentinel3'):
-                    legacy_dirs = [Path(f"saternal3/data/eumetview_sentinel3/{satellite}/{parameter}/png")]
-                
-                mounted = False
-                for legacy_dir in legacy_dirs:
-                    if legacy_dir.exists() and any(legacy_dir.glob("*.png")):
-                        app.mount(mount_path, StaticFiles(directory=str(legacy_dir)), name=f"{satellite}_{parameter}_png_legacy")
-                        print(f"✅ Mounted static files (legacy): {mount_path} -> {legacy_dir}")
-                        print(f"⚠️ Consider migrating data from {legacy_dir} to {unified_png_dir}")
-                        mounted = True
-                        break
-                
-                if not mounted:
-                    print(f"⚠️ No PNG files found for {satellite}/{parameter} - will create directory: {unified_png_dir}")
-                    unified_png_dir.mkdir(parents=True, exist_ok=True)
+                print(f"⚠️ No PNG directory found for {satellite}/{parameter} - will create: {unified_png_dir}")
+                unified_png_dir.mkdir(parents=True, exist_ok=True)
 
 # Satellite registry (simplified for current implementation)
 SATELLITES = {
@@ -272,54 +240,12 @@ async def lifespan(app: FastAPI):
     print("   🖼️ Static Files: /static/sentinel3b/{sst,chl}/png")
     print("   📚 Documentation: /docs")
     
-    # Check for potential data migration needs
-    await check_data_migration_status()
     
     yield  # Application runs here
     
     # Cleanup on shutdown (if needed)
     print("🛑 Shutting down Global Satellite Data API...")
 
-async def check_data_migration_status():
-    """Check if data migration is needed and log recommendations"""
-    from pathlib import Path
-    
-    # Check for legacy files
-    legacy_files_found = False
-    
-    # Check Himawari legacy
-    himawari_legacy = Path("himawari_test_data/data/himawari_l3c")
-    if himawari_legacy.exists():
-        nc_files = len(list((himawari_legacy / "parts").glob("*.nc"))) if (himawari_legacy / "parts").exists() else 0
-        png_files = len(list((himawari_legacy / "png").glob("*.png"))) if (himawari_legacy / "png").exists() else 0
-        if nc_files > 0 or png_files > 0:
-            legacy_files_found = True
-            print(f"⚠️ Found {nc_files + png_files} Himawari files in legacy location: {himawari_legacy}")
-    
-    # Check Sentinel-3 legacy
-    sentinel3_legacy = Path("saternal3/data/eumetview_sentinel3")
-    if sentinel3_legacy.exists():
-        for satellite in ['sentinel3a', 'sentinel3b']:
-            satellite_dir = sentinel3_legacy / satellite
-            if satellite_dir.exists():
-                for param in ['sst', 'chl']:
-                    for file_type in ['nc', 'png']:
-                        legacy_dir = satellite_dir / param / file_type
-                        if legacy_dir.exists():
-                            file_count = len(list(legacy_dir.glob(f"*.{file_type}")))
-                            if file_count > 0:
-                                legacy_files_found = True
-                                print(f"⚠️ Found {file_count} {satellite}/{param}/{file_type} files in legacy location: {legacy_dir}")
-    
-    if legacy_files_found:
-        print("\n🔧 Data migration recommendations:")
-        print("   1. Run: python migrate_data.py --check")
-        print("   2. Run: python migrate_data.py --migrate --dry-run")
-        print("   3. Run: python migrate_data.py --migrate")
-        print("   4. Run: python migrate_data.py --verify")
-        print("   This will move your data to the unified structure: data/{satellite}/{parameter}/{file_type}/")
-    else:
-        print("✅ No legacy data found - unified structure is being used")
 
 # Create FastAPI app with lifespan
 app = FastAPI(
@@ -411,26 +337,14 @@ async def get_system_status():
                 # Check if directories exist and get file counts
                 from pathlib import Path
                 
-                # Check both unified and legacy directories
+                # Check unified directories only
                 base_data_dir = Path("data")
                 unified_nc_dir = base_data_dir / "himawari" / "sst" / "nc"
                 unified_png_dir = base_data_dir / "himawari" / "sst" / "png"
-                legacy_nc_dir = Path("himawari_test_data/data/himawari_l3c/parts")
-                legacy_png_dir = Path("himawari_test_data/data/himawari_l3c/png")
                 
-                # Count files from both locations
-                nc_count = 0
-                png_count = 0
-                
-                if unified_nc_dir.exists():
-                    nc_count += len(list(unified_nc_dir.glob("*.nc")))
-                if legacy_nc_dir.exists():
-                    nc_count += len(list(legacy_nc_dir.glob("*.nc")))
-                    
-                if unified_png_dir.exists():
-                    png_count += len(list(unified_png_dir.glob("*.png")))
-                if legacy_png_dir.exists():
-                    png_count += len(list(legacy_png_dir.glob("*.png")))
+                # Count files from unified structure
+                nc_count = len(list(unified_nc_dir.glob("*.nc"))) if unified_nc_dir.exists() else 0
+                png_count = len(list(unified_png_dir.glob("*.png"))) if unified_png_dir.exists() else 0
                 
                 satellite_statuses[satellite_id] = {
                     "available": True,
@@ -440,12 +354,9 @@ async def get_system_status():
                             "png_files": png_count
                         },
                         "directories": {
-                            "unified_base": str(base_data_dir / "himawari"),
-                            "legacy_base": str(Path("himawari_test_data/data/himawari_l3c")),
-                            "unified_nc_exists": unified_nc_dir.exists(),
-                            "unified_png_exists": unified_png_dir.exists(),
-                            "legacy_nc_exists": legacy_nc_dir.exists(),
-                            "legacy_png_exists": legacy_png_dir.exists()
+                            "base_directory": str(base_data_dir / "himawari"),
+                            "nc_dir_exists": unified_nc_dir.exists(),
+                            "png_dir_exists": unified_png_dir.exists()
                         }
                     }
                 }
@@ -453,42 +364,27 @@ async def get_system_status():
                 # For Sentinel-3, check if API and directories exist
                 from pathlib import Path
                 
-                # Check both unified and legacy directories
+                # Check unified directories only
                 base_data_dir = Path("data")
-                legacy_base = Path("saternal3/data/eumetview_sentinel3")
                 
                 total_nc_files = 0
                 total_png_files = 0
-                unified_dirs_status = {}
-                legacy_dirs_status = {}
+                dirs_status = {}
                 
                 for data_type in ['sst', 'chl']:
                     # Check unified directories
                     unified_nc_dir = base_data_dir / satellite_id / data_type / "nc"
                     unified_png_dir = base_data_dir / satellite_id / data_type / "png"
                     
-                    # Check legacy directories
-                    legacy_nc_dir = legacy_base / satellite_id / data_type / "nc"
-                    legacy_png_dir = legacy_base / satellite_id / data_type / "png"
-                    
-                    # Count files from both locations
+                    # Count files from unified structure
                     if unified_nc_dir.exists():
                         total_nc_files += len(list(unified_nc_dir.glob("*.nc")))
-                    if legacy_nc_dir.exists():
-                        total_nc_files += len(list(legacy_nc_dir.glob("*.nc")))
-                        
                     if unified_png_dir.exists():
                         total_png_files += len(list(unified_png_dir.glob("*.png")))
-                    if legacy_png_dir.exists():
-                        total_png_files += len(list(legacy_png_dir.glob("*.png")))
                     
-                    unified_dirs_status[data_type] = {
+                    dirs_status[data_type] = {
                         "nc_exists": unified_nc_dir.exists(),
                         "png_exists": unified_png_dir.exists()
-                    }
-                    legacy_dirs_status[data_type] = {
-                        "nc_exists": legacy_nc_dir.exists(),
-                        "png_exists": legacy_png_dir.exists()
                     }
                 
                 # Check if Sentinel-3 API is available
@@ -508,10 +404,8 @@ async def get_system_status():
                             "png_files": total_png_files
                         },
                         "directories": {
-                            "unified_base": str(base_data_dir / satellite_id),
-                            "legacy_base": str(legacy_base / satellite_id),
-                            "unified_dirs": unified_dirs_status,
-                            "legacy_dirs": legacy_dirs_status
+                            "base_directory": str(base_data_dir / satellite_id),
+                            "data_types": dirs_status
                         }
                     }
                 }
@@ -628,19 +522,14 @@ async def list_files(satellite: str, parameter: str, file_type: str):
         
         # Unified directory structure: data/{satellite}/{parameter}/{file_type}/
         base_data_dir = Path("data")
-        unified_files_dir = base_data_dir / satellite / parameter / file_type
+        files_dir = base_data_dir / satellite / parameter / file_type
         
-        # For Himawari NC files, map to 'nc' instead of 'parts'
-        if satellite == "himawari" and parameter == "sst" and file_type == "nc":
-            pattern = "*.nc"
-        else:
-            pattern = f"*.{file_type}"
-        
+        pattern = f"*.{file_type}"
         files = []
         
-        # Try unified directory first
-        if unified_files_dir.exists() and any(unified_files_dir.glob(pattern)):
-            for f in unified_files_dir.glob(pattern):
+        # Get files from unified directory structure
+        if files_dir.exists():
+            for f in files_dir.glob(pattern):
                 file_info = {
                     "filename": f.name,
                     "size": f.stat().st_size,
@@ -648,31 +537,6 @@ async def list_files(satellite: str, parameter: str, file_type: str):
                     "modified": f.stat().st_mtime
                 }
                 files.append(file_info)
-        else:
-            # Fallback to legacy directories
-            legacy_dirs = []
-            if satellite == "himawari" and parameter == "sst":
-                if file_type == "nc":
-                    legacy_dirs = [Path("himawari_test_data/data/himawari_l3c/parts")]
-                elif file_type == "png":
-                    legacy_dirs = [Path("himawari_test_data/data/himawari_l3c/png")]
-            elif satellite.startswith("sentinel3"):
-                legacy_dirs = [Path(f"saternal3/data/eumetview_sentinel3/{satellite}/{parameter}/{file_type}")]
-            
-            for legacy_dir in legacy_dirs:
-                if legacy_dir.exists():
-                    for f in legacy_dir.glob(pattern):
-                        file_info = {
-                            "filename": f.name,
-                            "size": f.stat().st_size,
-                            "url": f"/static/{satellite}/{parameter}/{file_type}/{f.name}" if file_type == "png" else None,
-                            "modified": f.stat().st_mtime
-                        }
-                        files.append(file_info)
-                    if files:
-                        print(f"⚠️ Using legacy directory for {satellite}/{parameter}/{file_type}: {legacy_dir}")
-                        print(f"⚠️ Consider migrating to unified structure: {unified_files_dir}")
-                        break
         
         # Sort by modification time (newest first)
         files = sorted(files, key=lambda x: x["modified"], reverse=True)
@@ -688,12 +552,7 @@ async def list_files(satellite: str, parameter: str, file_type: str):
             "file_type": file_type,
             "files": files,
             "total": len(files),
-            "structure_info": {
-                "unified_directory": str(unified_files_dir),
-                "unified_exists": unified_files_dir.exists(),
-                "legacy_fallback_used": len(files) > 0 and not (unified_files_dir.exists() and any(unified_files_dir.glob(pattern))),
-                "migration_recommended": len(files) > 0 and not (unified_files_dir.exists() and any(unified_files_dir.glob(pattern)))
-            }
+            "directory": str(files_dir)
         }
         
     except Exception as e:
@@ -705,7 +564,7 @@ async def list_files(satellite: str, parameter: str, file_type: str):
             "satellite": satellite,
             "parameter": parameter,
             "file_type": file_type,
-            "unified_directory": str(unified_files_dir) if 'unified_files_dir' in locals() else None
+            "directory": str(files_dir) if 'files_dir' in locals() else None
         }
         print(f"❌ Error listing files: {error_details}")
         raise HTTPException(status_code=500, detail=f"Failed to list files: {str(e)}")
@@ -719,44 +578,25 @@ async def download_nc_file(satellite: str, parameter: str, filename: str):
     try:
         from pathlib import Path
         
-        # Try unified directory structure first
+        # Unified directory structure
         base_data_dir = Path("data")
-        unified_file_path = base_data_dir / satellite / parameter / "nc" / filename
+        file_path = base_data_dir / satellite / parameter / "nc" / filename
         
-        if unified_file_path.exists():
+        if file_path.exists():
             return FileResponse(
-                path=str(unified_file_path),
+                path=str(file_path),
                 filename=filename,
                 media_type="application/x-netcdf"
             )
         
-        # Fallback to legacy directories
-        legacy_paths = []
-        if satellite == "himawari" and parameter == "sst":
-            legacy_paths = [Path(f"himawari_test_data/data/himawari_l3c/parts/{filename}")]
-        elif satellite.startswith("sentinel3"):
-            legacy_paths = [Path(f"saternal3/data/eumetview_sentinel3/{satellite}/{parameter}/nc/{filename}")]
-        
-        for legacy_path in legacy_paths:
-            if legacy_path.exists():
-                print(f"⚠️ Serving from legacy location: {legacy_path}")
-                print(f"⚠️ Consider migrating to unified structure: {unified_file_path}")
-                return FileResponse(
-                    path=str(legacy_path),
-                    filename=filename,
-                    media_type="application/x-netcdf"
-                )
-        
-        # Enhanced error logging for file not found
+        # File not found
         error_msg = f"File not found: {filename}"
         file_search_info = {
             "filename": filename,
             "satellite": satellite,
             "parameter": parameter,
-            "unified_path_checked": str(unified_file_path),
-            "legacy_paths_checked": [str(p) for p in legacy_paths],
-            "unified_exists": unified_file_path.exists(),
-            "legacy_paths_exist": [p.exists() for p in legacy_paths]
+            "path_checked": str(file_path),
+            "directory_exists": file_path.parent.exists()
         }
         print(f"❌ {error_msg}: {file_search_info}")
         raise HTTPException(status_code=404, detail=error_msg)
