@@ -84,8 +84,14 @@ export function ResearchMap({
       const hour = String(utcDate.getUTCHours()).padStart(2, "0");
       return `${year}${month}${day}${hour}0000`;
     } else {
-      // Sentinel-3格式: ISO时间戳
-      return utcDate.toISOString().replace(/[:.]/g, "-").replace("Z", "");
+      // Sentinel-3格式: YYYYMMDD_HHMMSS格式用于匹配
+      const year = utcDate.getUTCFullYear();
+      const month = String(utcDate.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(utcDate.getUTCDate()).padStart(2, "0");
+      const hour = String(utcDate.getUTCHours()).padStart(2, "0");
+      const minute = String(utcDate.getUTCMinutes()).padStart(2, "0");
+      const second = String(utcDate.getUTCSeconds()).padStart(2, "0");
+      return `${year}${month}${day}_${hour}${minute}${second}`;
     }
   }, [parameter, timeRange.start, satelliteMapping]);
 
@@ -100,6 +106,26 @@ export function ResearchMap({
     }
   }, [parameter, satelliteMapping, getFiles, currentTimestamp]);
 
+  // 辅助函数：从Sentinel-3文件名提取时间
+  const extractTimeFromSentinel3Filename = (filename: string): Date | null => {
+    // Sentinel-3 PNG文件格式: YYYYMMDD_HHMMSS.png
+    const timeMatch = filename.match(/(\d{8})_(\d{6})\.png$/);
+    if (timeMatch) {
+      const dateStr = timeMatch[1]; // YYYYMMDD
+      const timeStr = timeMatch[2]; // HHMMSS
+      
+      const year = dateStr.substring(0, 4);
+      const month = dateStr.substring(4, 6);
+      const day = dateStr.substring(6, 8);
+      const hour = timeStr.substring(0, 2);
+      const minute = timeStr.substring(2, 4);
+      const second = timeStr.substring(4, 6);
+      
+      return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`);
+    }
+    return null;
+  };
+
   useEffect(() => {
     if (satelliteMapping && currentTimestamp && availableFiles.length > 0) {
       // 寻找最匹配的文件
@@ -112,12 +138,22 @@ export function ResearchMap({
           (file) => file.filename && file.filename.startsWith(currentTimestamp)
         );
       } else {
-        // Sentinel-3 文件查找
-        targetFile = availableFiles.find(
-          (file) =>
-            file.filename &&
-            file.filename.includes(currentTimestamp.substring(0, 19))
-        );
+        // Sentinel-3 文件查找 - 寻找选中时间点之前最近的那张图
+        const selectedTime = timeRange.start.getTime();
+        let bestFile = null;
+        let bestTimeDiff = Infinity;
+        
+        for (const file of availableFiles) {
+          const fileTime = extractTimeFromSentinel3Filename(file.filename);
+          if (fileTime && fileTime.getTime() <= selectedTime) {
+            const timeDiff = selectedTime - fileTime.getTime();
+            if (timeDiff < bestTimeDiff) {
+              bestTimeDiff = timeDiff;
+              bestFile = file;
+            }
+          }
+        }
+        targetFile = bestFile;
       }
 
       console.log(`Looking for file with timestamp: ${currentTimestamp}`);
@@ -174,30 +210,6 @@ export function ResearchMap({
     }
   }, [satelliteMapping, currentTimestamp, availableFiles, parameter, imageUrl]);
 
-  // 辅助函数：解析Himawari时间戳
-  const parseHimawariTimestamp = (timeStr: string): Date | null => {
-    if (timeStr.length >= 14) {
-      const year = timeStr.substring(0, 4);
-      const month = timeStr.substring(4, 6);
-      const day = timeStr.substring(6, 8);
-      const hour = timeStr.substring(8, 10);
-      const minute = timeStr.substring(10, 12);
-      const second = timeStr.substring(12, 14);
-
-      return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`);
-    }
-    return null;
-  };
-
-  // 辅助函数：检查时间是否接近
-  const isTimeClose = (
-    fileTime: Date,
-    targetTime: Date,
-    toleranceHours: number = 1
-  ): boolean => {
-    const diff = Math.abs(fileTime.getTime() - targetTime.getTime());
-    return diff <= toleranceHours * 60 * 60 * 1000; // 1小时容差
-  };
 
   if (isLoading) {
     return (
@@ -282,23 +294,10 @@ export function ResearchMap({
             </>
           )}
         </Badge>
-        {imageUrl && satelliteMapping && currentTimestamp && (
+        {imageUrl && satelliteMapping && (
           <Badge className="bg-white/20 backdrop-blur text-white border-white/30">
             <div className="text-xs">
-              {parameter === "ssth"
-                ? new Date(
-                    `${currentTimestamp.substring(
-                      0,
-                      4
-                    )}-${currentTimestamp.substring(
-                      4,
-                      6
-                    )}-${currentTimestamp.substring(
-                      6,
-                      8
-                    )}T${currentTimestamp.substring(8, 10)}:00:00Z`
-                  ).toLocaleString()
-                : timeRange.start.toLocaleString()}
+              {timeRange.start.toLocaleString()}
             </div>
           </Badge>
         )}
