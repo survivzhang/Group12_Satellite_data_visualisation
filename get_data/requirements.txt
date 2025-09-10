@@ -1,7 +1,8 @@
-# Himawari Satellite Data Processing Requirements
+# Satellite Data Processing Requirements
 # 
 # Project: Group12 Satellite Data Visualisation
 # Updated: 2024 - includes frontend integration support
+# Supports: Himawari-9 and EUMETView Sentinel-3 data processing
 # 
 # Installation Instructions:
 # 1. Create virtual environment: python -m venv venv
@@ -10,6 +11,7 @@
 #    - macOS/Linux: source venv/bin/activate
 # 3. Install dependencies: pip install -r requirements.txt
 # 4. Create .netrc file with NASA Earthdata credentials
+# 5. Create eumetsat_api_credentials.txt file with EUMETView API credentials
 
 # Core Scientific Computing
 numpy>=1.24.0
@@ -30,6 +32,10 @@ plotly>=5.14.0
 
 # Satellite Data Access
 earthaccess>=0.8.0
+
+# EUMETView/EUMETSAT Specific Libraries
+owslib>=0.29.0
+eumdac>=1.0.0
 
 # Web Framework and API (Backend)
 fastapi>=0.104.0
@@ -89,6 +95,15 @@ psutil>=5.9.0
 
 # Static File Serving (for PNG images)
 aiofiles>=23.2.0
+
+# SSL/TLS Support (for EUMETView)
+urllib3>=2.0.0
+
+# XML Processing (for WCS responses)
+lxml>=4.9.0
+
+# Date/Time Processing (for timestamp handling)
+python-dateutil>=2.8.0
 
 # Additional utilities
 tqdm>=4.66.0

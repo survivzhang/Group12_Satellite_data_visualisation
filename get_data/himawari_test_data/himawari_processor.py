@@ -29,19 +29,30 @@ class HimawariDataProcessor:
     FILENAME_TIME_RE = re.compile(r"(\d{14})-STAR-L3C_")
     LONG_NAME = "STAR-L3C_GHRSST-SSTsubskin-AHI_H09-ACSPO_V2.90-v02.0-fv01.0"
     
-    def __init__(self, base_dir: str = "data/himawari_l3c"):
-        """Initialize the processor with directory structure."""
+    def __init__(self, base_dir: str = "data/himawari/sst"):
+        """Initialize the processor with unified directory structure."""
         self.base_dir = Path(base_dir)
         self.temp_dir = self.base_dir / "temp"
-        self.parts_dir = self.base_dir / "parts"
+        self.nc_dir = self.base_dir / "nc"  # renamed from parts_dir
         self.png_dir = self.base_dir / "png"
+        
+        # Legacy directories for backward compatibility
+        self.legacy_base_dir = Path("himawari_test_data/data/himawari_l3c")
+        self.legacy_temp_dir = self.legacy_base_dir / "temp"
+        self.legacy_parts_dir = self.legacy_base_dir / "parts"
+        self.legacy_png_dir = self.legacy_base_dir / "png"
         
         # Create directories
         self._setup_directories()
         
     def _setup_directories(self):
-        """Create necessary directories."""
-        for directory in [self.base_dir, self.temp_dir, self.parts_dir, self.png_dir]:
+        """Create necessary directories for both unified and legacy structures."""
+        # Create unified directories
+        for directory in [self.base_dir, self.temp_dir, self.nc_dir, self.png_dir]:
+            directory.mkdir(parents=True, exist_ok=True)
+        
+        # Create legacy directories for backward compatibility
+        for directory in [self.legacy_base_dir, self.legacy_temp_dir, self.legacy_parts_dir, self.legacy_png_dir]:
             directory.mkdir(parents=True, exist_ok=True)
     
     def ensure_earthdata_login(self, netrc_path: Path = Path(".netrc")):
@@ -188,7 +199,7 @@ class HimawariDataProcessor:
         file_name = f"{time_str}-{self.LONG_NAME}.nc"
         
         file_path = self.temp_dir / file_name
-        output_path = self.parts_dir / f"{time_str}.nc"
+        output_path = self.nc_dir / f"{time_str}.nc"
         
         if output_path.exists():
             print(f"Already processed: {output_path}")
@@ -536,7 +547,7 @@ def analyze_merged_dataset(merged_path: Path):
 class HimawariWorkflow:
     """Complete Himawari data processing workflow"""
     
-    def __init__(self, base_dir: str = "data/himawari_l3c"):
+    def __init__(self, base_dir: str = "data/himawari/sst"):
         self.processor = HimawariDataProcessor(base_dir)
         self.merged_path = self.processor.base_dir / "merged_sst.nc"
     
@@ -597,7 +608,7 @@ class HimawariWorkflow:
         # Step 3: Merge all processed files
         print("\n3. Merging processed files...")
         try:
-            merge_parts_to_single_nc(self.processor.parts_dir, self.merged_path)
+            merge_parts_to_single_nc(self.processor.nc_dir, self.merged_path)
         except Exception as e:
             print(f"Failed to merge files: {e}")
             return
@@ -611,7 +622,7 @@ class HimawariWorkflow:
         
         print(f"\n=== Workflow Complete ===")
         print(f"Results saved to: {self.processor.base_dir}")
-        print(f"- Processed files: {self.processor.parts_dir}")
+        print(f"- Processed files: {self.processor.nc_dir}")
         print(f"- Visualizations: {self.processor.png_dir}")
         print(f"- Merged dataset: {self.merged_path}")
     
@@ -659,7 +670,8 @@ class HimawariFileMonitor:
         """
         self.processor = processor
         self.base_dir = processor.base_dir
-        self.parts_dir = processor.parts_dir
+        self.nc_dir = processor.nc_dir  # Updated from parts_dir
+        self.parts_dir = processor.nc_dir  # For backward compatibility
         self.png_dir = processor.png_dir
         
     def check_file_completeness(
@@ -736,23 +748,35 @@ class HimawariFileMonitor:
         }
         
         for time_str in expected_times:
-            nc_path = self.parts_dir / f"{time_str}.nc"
+            # Check unified directory first, then legacy
+            nc_path = self.nc_dir / f"{time_str}.nc"
+            legacy_nc_path = self.processor.legacy_parts_dir / f"{time_str}.nc"
             
-            if nc_path.exists():
-                # Check if file can be opened normally
-                try:
-                    with xr.open_dataset(nc_path) as ds:
-                        # Basic integrity check
-                        if 'sea_surface_temperature' in ds.data_vars:
-                            nc_results['existing'].append(time_str)
-                            print(f"✓ {time_str}.nc - OK")
-                        else:
-                            nc_results['corrupted'].append(time_str)
-                            print(f"⚠ {time_str}.nc - Missing SST variable")
-                except Exception as e:
-                    nc_results['corrupted'].append(time_str)
-                    print(f"✗ {time_str}.nc - Corrupted: {e}")
-            else:
+            # Try unified first, then legacy
+            file_found = False
+            for path, location in [(nc_path, "unified"), (legacy_nc_path, "legacy")]:
+                if path.exists():
+                    # Check if file can be opened normally
+                    try:
+                        with xr.open_dataset(path) as ds:
+                            # Basic integrity check
+                            if 'sea_surface_temperature' in ds.data_vars:
+                                nc_results['existing'].append(time_str)
+                                print(f"✓ {time_str}.nc - OK ({location})")
+                                file_found = True
+                                break
+                            else:
+                                nc_results['corrupted'].append(time_str)
+                                print(f"⚠ {time_str}.nc - Missing SST variable ({location})")
+                                file_found = True
+                                break
+                    except Exception as e:
+                        nc_results['corrupted'].append(time_str)
+                        print(f"✗ {time_str}.nc - Corrupted ({location}): {e}")
+                        file_found = True
+                        break
+            
+            if not file_found:
                 nc_results['missing'].append(time_str)
                 print(f"✗ {time_str}.nc - Missing")
                 
@@ -766,12 +790,20 @@ class HimawariFileMonitor:
         }
         
         for time_str in expected_times:
+            # Check unified directory first, then legacy
             png_path = self.png_dir / f"{time_str}.png"
+            legacy_png_path = self.processor.legacy_png_dir / f"{time_str}.png"
             
-            if png_path.exists() and png_path.stat().st_size > 0:
-                png_results['existing'].append(time_str)
-                print(f"✓ {time_str}.png - OK")
-            else:
+            # Try unified first, then legacy
+            file_found = False
+            for path, location in [(png_path, "unified"), (legacy_png_path, "legacy")]:
+                if path.exists() and path.stat().st_size > 0:
+                    png_results['existing'].append(time_str)
+                    print(f"✓ {time_str}.png - OK ({location})")
+                    file_found = True
+                    break
+            
+            if not file_found:
                 png_results['missing'].append(time_str)
                 print(f"✗ {time_str}.png - Missing")
                 
@@ -903,7 +935,7 @@ class HimawariFileMonitor:
     
     def _regenerate_png(self, time_str: str):
         """Regenerate PNG from existing nc file"""
-        nc_path = self.parts_dir / f"{time_str}.nc"
+        nc_path = self.nc_dir / f"{time_str}.nc"
         if not nc_path.exists():
             raise FileNotFoundError(f"NC file not found: {nc_path}")
         # Read nc file and generate visualization
@@ -971,7 +1003,7 @@ class HimawariFileMonitor:
 
 
 def create_file_monitor(base_dir
-                        : str = "data/himawari_l3c") -> HimawariFileMonitor:
+                        : str = "data/himawari/sst") -> HimawariFileMonitor:
     """
     Convenience function to create a file monitor
     

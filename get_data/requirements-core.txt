@@ -1,7 +1,8 @@
-# Core Requirements for Himawari Satellite Data Processing
+# Core Requirements for Satellite Data Processing
 # Minimal dependencies for data processing only
 # 
 # Project: Group12 Satellite Data Visualisation  
+# Supports: Himawari-9 and EUMETView Sentinel-3 data processing
 # Use this for lightweight data processing without API server
 
 # Core Scientific Computing
@@ -17,6 +18,19 @@ matplotlib>=3.7.0
 
 # Satellite Data Access
 earthaccess>=0.8.0
+
+# EUMETView/EUMETSAT Specific Libraries
+owslib>=0.29.0
+eumdac>=1.0.0
+
+# HTTP Requests for WCS API
+requests>=2.31.0
+
+# SSL/TLS Support (for EUMETView)
+urllib3>=2.0.0
+
+# XML Processing (for WCS responses)
+lxml>=4.9.0
 
 # File Processing
 netcdf4>=1.6.4
