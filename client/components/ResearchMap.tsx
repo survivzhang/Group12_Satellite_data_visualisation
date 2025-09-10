@@ -1,85 +1,203 @@
 "use client";
 
-import { useState, useEffect, useMemo } from 'react';
-import { Parameter, TimeRange } from '@/types/research';
-import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { MapPin, Zap, Image as ImageIcon } from 'lucide-react';
+import { useState, useEffect, useMemo } from "react";
+import { Parameter, TimeRange } from "@/types/research";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { MapPin, Layers, Zap, Image as ImageIcon } from "lucide-react";
+import { useDataStore } from "@/hooks/useDataStore";
 
 interface ResearchMapProps {
   parameter: string;
   timeRange: TimeRange;
   availableParameters: Parameter[];
   isFullscreen?: boolean;
-  onClose?: () => void;
+  getParameterFiles?: (
+    paramId: string,
+    fileType: "nc" | "png"
+  ) => Promise<any[]>;
 }
 
-export function ResearchMap({ parameter, timeRange, availableParameters, isFullscreen, onClose }: ResearchMapProps) {
+// 卫星参数映射 - 更新为统一数据结构
+const SATELLITE_MAPPING = {
+  ssth: {
+    satellite: "himawari",
+    parameter: "sst",
+    staticPath: "/static/himawari/sst/png",
+  },
+  "sst-s3a": {
+    satellite: "sentinel3a",
+    parameter: "sst",
+    staticPath: "/static/sentinel3a/sst/png",
+  },
+  "sst-s3b": {
+    satellite: "sentinel3b",
+    parameter: "sst",
+    staticPath: "/static/sentinel3b/sst/png",
+  },
+  "chl-s3a": {
+    satellite: "sentinel3a",
+    parameter: "chl",
+    staticPath: "/static/sentinel3a/chl/png",
+  },
+  "chl-s3b": {
+    satellite: "sentinel3b",
+    parameter: "chl",
+    staticPath: "/static/sentinel3b/chl/png",
+  },
+};
+
+export function ResearchMap({
+  parameter,
+  timeRange,
+  availableParameters,
+  isFullscreen,
+  getParameterFiles,
+}: ResearchMapProps): JSX.Element {
   const [isLoading, setIsLoading] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState(false);
-  
-  const currentParam = availableParameters.find(p => p.id === parameter);
+  const [availableFiles, setAvailableFiles] = useState<any[]>([]);
 
-  // Memoize timestamp calculation to avoid infinite loops
+  // 如果没有传入getParameterFiles，则使用useDataStore（向后兼容）
+  const dataStore = !getParameterFiles ? useDataStore() : null;
+  const getFiles = getParameterFiles || dataStore?.getParameterFiles;
+
+  const currentParam = availableParameters.find((p) => p.id === parameter);
+  const satelliteMapping =
+    SATELLITE_MAPPING[parameter as keyof typeof SATELLITE_MAPPING];
+
+  // 获取当前时间戳和文件名
   const currentTimestamp = useMemo(() => {
-    if (parameter !== 'ssth') return null;
-    
+    if (!satelliteMapping) return null;
+
     // Ensure UTC time and round down to the nearest hour
     const utcDate = new Date(timeRange.start.getTime());
     utcDate.setUTCMinutes(0, 0, 0);
-    
-    // Format as YYYYMMDDHHMMSS for filename
-    const year = utcDate.getUTCFullYear();
-    const month = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(utcDate.getUTCDate()).padStart(2, '0');
-    const hour = String(utcDate.getUTCHours()).padStart(2, '0');
-    
-    const timestamp = `${year}${month}${day}${hour}0000`;
-    // console.log(`Input date: ${timeRange.start.toISOString()}`);
-    // console.log(`UTC date after rounding: ${utcDate.toISOString()}`);
-    console.log(`Generated timestamp: ${timestamp}`);
-    
-    return timestamp;
-  }, [parameter, timeRange.start]);
+
+    // 不同卫星使用不同的时间戳格式
+    if (parameter === "ssth") {
+      // Himawari格式: YYYYMMDDHHMMSS
+      const year = utcDate.getUTCFullYear();
+      const month = String(utcDate.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(utcDate.getUTCDate()).padStart(2, "0");
+      const hour = String(utcDate.getUTCHours()).padStart(2, "0");
+      return `${year}${month}${day}${hour}0000`;
+    } else {
+      // Sentinel-3格式: ISO时间戳
+      return utcDate.toISOString().replace(/[:.]/g, "-").replace("Z", "");
+    }
+  }, [parameter, timeRange.start, satelliteMapping]);
+
+  // 获取可用文件列表
+  useEffect(() => {
+    if (satelliteMapping && getFiles) {
+      getFiles(parameter, "png").then((files) => {
+        setAvailableFiles(files);
+        console.log(`Available PNG files for ${parameter}:`, files);
+        console.log(`Current timestamp: ${currentTimestamp}`);
+      });
+    }
+  }, [parameter, satelliteMapping, getFiles, currentTimestamp]);
 
   useEffect(() => {
-    if (parameter === 'ssth' && currentTimestamp) {
-      const pngUrl = `http://localhost:8000/static/images/${currentTimestamp}.png`;
-      
-      // Avoid reloading the same image
-      if (imageUrl === pngUrl) {
-        return;
+    if (satelliteMapping && currentTimestamp && availableFiles.length > 0) {
+      // 寻找最匹配的文件
+      let targetFile: any = null;
+
+      // 根据参数类型查找匹配的文件
+      if (parameter === "ssth") {
+        // Himawari 文件查找 - 查找包含时间戳的文件
+        targetFile = availableFiles.find(
+          (file) => file.filename && file.filename.startsWith(currentTimestamp)
+        );
+      } else {
+        // Sentinel-3 文件查找
+        targetFile = availableFiles.find(
+          (file) =>
+            file.filename &&
+            file.filename.includes(currentTimestamp.substring(0, 19))
+        );
       }
-      
-      setIsLoading(true);
-      setImageError(false);
-      
-      console.log(`Loading SSTH image for timestamp: ${currentTimestamp}`);
-      console.log(`Image URL: ${pngUrl}`);
-      
-      // Check if image exists
-      const img = new Image();
-      img.onload = () => {
-        setImageUrl(pngUrl);
-        setIsLoading(false);
-      };
-      img.onerror = () => {
-        console.warn(`PNG not found for ${currentTimestamp}`);
+
+      console.log(`Looking for file with timestamp: ${currentTimestamp}`);
+      console.log(
+        `Available files:`,
+        availableFiles.map((f) => f.filename)
+      );
+
+      if (targetFile) {
+        const pngUrl = `http://localhost:8000${targetFile.url}`;
+
+        // 避免重复加载相同的图片
+        if (imageUrl === pngUrl) {
+          return;
+        }
+
+        setIsLoading(true);
+        setImageError(false);
+
+        console.log(`Loading ${parameter} image:`, targetFile.filename);
+        console.log(`Image URL: ${pngUrl}`);
+
+        // Check if image exists
+        const img = new Image();
+        img.onload = () => {
+          setImageUrl(pngUrl);
+          setIsLoading(false);
+        };
+        img.onerror = () => {
+          console.warn(`PNG failed to load: ${targetFile.filename}`);
+          setImageError(true);
+          setImageUrl(null);
+          setIsLoading(false);
+        };
+        img.src = pngUrl;
+      } else {
+        console.warn(
+          `No suitable PNG file found for ${parameter} at ${currentTimestamp}`
+        );
         setImageError(true);
         setImageUrl(null);
         setIsLoading(false);
-      };
-      img.src = pngUrl;
+      }
+    } else if (satelliteMapping) {
+      // 参数支持但没有可用文件
+      setIsLoading(false);
+      setImageUrl(null);
+      setImageError(true);
     } else {
-      // For non-ssth parameters, show placeholder
+      // 不支持的参数，显示占位符
       setIsLoading(false);
       setImageUrl(null);
       setImageError(false);
     }
-  }, [parameter, currentTimestamp]);
+  }, [satelliteMapping, currentTimestamp, availableFiles, parameter, imageUrl]);
 
+  // 辅助函数：解析Himawari时间戳
+  const parseHimawariTimestamp = (timeStr: string): Date | null => {
+    if (timeStr.length >= 14) {
+      const year = timeStr.substring(0, 4);
+      const month = timeStr.substring(4, 6);
+      const day = timeStr.substring(6, 8);
+      const hour = timeStr.substring(8, 10);
+      const minute = timeStr.substring(10, 12);
+      const second = timeStr.substring(12, 14);
 
+      return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`);
+    }
+    return null;
+  };
+
+  // 辅助函数：检查时间是否接近
+  const isTimeClose = (
+    fileTime: Date,
+    targetTime: Date,
+    toleranceHours: number = 1
+  ): boolean => {
+    const diff = Math.abs(fileTime.getTime() - targetTime.getTime());
+    return diff <= toleranceHours * 60 * 60 * 1000; // 1小时容差
+  };
 
   if (isLoading) {
     return (
@@ -90,59 +208,32 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
   }
 
   return (
-    <div className={`relative ${isFullscreen ? 'h-full' : 'h-96'} rounded-lg overflow-hidden`} style={{
-      background: `
-        radial-gradient(ellipse at 20% 30%, #0a1a2e 0%, #16213e 40%, #1e3a8a 80%, #3b82f6 100%),
-        linear-gradient(135deg, #0f172a 0%, #1e3a8a 30%, #3b82f6 60%, #60a5fa 100%)
-      `,
-      backgroundBlendMode: "multiply, normal"
-    }}>
-      {/* Close button */}
-      {onClose && (
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 z-20 bg-white/80 hover:bg-white text-slate-800 rounded-full p-1 shadow focus:outline-none"
-          aria-label="Close map"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-        </button>
-      )}
-      {/* Show PNG image for SST, otherwise show placeholder */}
-      {imageUrl && parameter === 'ssth' ? (
-        <div className="absolute inset-0 w-full h-full flex items-center justify-center" style={{
-          background: `
-            radial-gradient(ellipse at center, #0a1a2e 0%, #16213e 30%, #1e3a8a 70%, #3b82f6 100%),
-            linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #3b82f6 100%)
-          `,
-          backgroundBlendMode: "multiply, normal"
-        }}>
-          <img 
+    <div className="relative h-full w-full bg-slate-900 rounded-lg overflow-hidden">
+      {imageUrl && satelliteMapping ? (
+        <div className="relative h-full">
+          <img
             src={imageUrl}
-            alt={`Sea Surface Temperature - ${currentTimestamp || 'loading'}`}
-            className={`${isFullscreen ? 'max-w-full max-h-full' : 'w-full h-full'} object-contain rounded-lg`}
-            style={{ filter: 'contrast(1.1) brightness(1.1)' }}
+            alt={`${currentParam?.name} visualization`}
+            className="w-full h-full object-cover"
+            style={{ filter: "contrast(1.1) brightness(1.1)" }}
           />
           {/* Overlay for better text readability */}
           <div className="absolute inset-0 bg-black/10"></div>
         </div>
       ) : (
-        /* Placeholder for non-SST parameters or when image is not available */
-        <div className="absolute inset-0 w-full h-full flex items-center justify-center" style={{
-          background: `
-            radial-gradient(ellipse at 40% 60%, #0a1a2e 0%, #16213e 40%, #1e3a8a 80%, #3b82f6 100%),
-            linear-gradient(135deg, #0f172a 0%, #1e3a8a 30%, #3b82f6 60%, #60a5fa 100%)
-          `,
-          backgroundBlendMode: "multiply, normal"
-        }}>
+        <div className="h-full flex items-center justify-center">
           <div className="text-center text-white/80">
             <div className="text-lg font-medium mb-2">
-              {parameter === 'ssth' && imageError ? 'Image not available' : `${currentParam?.name} Data`}
+              {satelliteMapping && imageError
+                ? "Image not available"
+                : `${currentParam?.name} Data`}
             </div>
             <div className="text-sm opacity-75">
-              {parameter === 'ssth' && imageError 
-                ? `No satellite data for ${currentTimestamp}`
-                : 'Visualization coming soon'
-              }
+              {satelliteMapping && imageError
+                ? `No satellite data for ${currentTimestamp || "selected time"}`
+                : satelliteMapping
+                ? "Loading satellite data..."
+                : "Visualization coming soon"}
             </div>
           </div>
         </div>
@@ -157,27 +248,39 @@ export function ResearchMap({ parameter, timeRange, availableParameters, isFulls
           </div>
         </Badge>
         <Badge className="bg-white/20 backdrop-blur text-white border-white/30">
-          {imageUrl && parameter === 'ssth' ? (
+          {imageUrl && satelliteMapping ? (
             <>
               <ImageIcon className="h-3 w-3 mr-1" />
-              Satellite Image
+              {satelliteMapping.satellite.toUpperCase()} Image
             </>
           ) : (
             <>
               <MapPin className="h-3 w-3 mr-1" />
-              {parameter === 'ssth' ? 'No data available' : 'Coming soon'}
+              {satelliteMapping ? "No data available" : "Coming soon"}
             </>
           )}
         </Badge>
-        {imageUrl && parameter === 'ssth' && currentTimestamp && (
+        {imageUrl && satelliteMapping && currentTimestamp && (
           <Badge className="bg-white/20 backdrop-blur text-white border-white/30">
             <div className="text-xs">
-              {new Date(`${currentTimestamp.substring(0,4)}-${currentTimestamp.substring(4,6)}-${currentTimestamp.substring(6,8)}T${currentTimestamp.substring(8,10)}:00:00Z`).toLocaleString()}
+              {parameter === "ssth"
+                ? new Date(
+                    `${currentTimestamp.substring(
+                      0,
+                      4
+                    )}-${currentTimestamp.substring(
+                      4,
+                      6
+                    )}-${currentTimestamp.substring(
+                      6,
+                      8
+                    )}T${currentTimestamp.substring(8, 10)}:00:00Z`
+                  ).toLocaleString()
+                : timeRange.start.toLocaleString()}
             </div>
           </Badge>
         )}
       </div>
-
 
       {/* Live indicator */}
       <div className="absolute top-4 right-16">

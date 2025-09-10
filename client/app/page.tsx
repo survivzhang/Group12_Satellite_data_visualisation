@@ -28,77 +28,81 @@ export default function NingalooResearchApp() {
   const [mapInstances, setMapInstances] = useState<MapInstance[]>([
     { id: "1", parameter: "ssth", title: "Sea Surface Temperature (Himawari)" },
   ]);
-  
+
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>({
     start: new Date("2025-03-01T00:00:00Z"),
     end: new Date("2025-03-01T12:00:00Z"),
     granularity: "hours",
   });
-  
+
   const [expandedParams, setExpandedParams] = useState(false);
   const [fullscreenMap, setFullscreenMap] = useState<string | null>(null);
-  const [isHydrated, setIsHydrated] = useState(false);
 
-  const { lastUpdate, isUpdating, updateData, missingFiles } = useDataStore();
-
-  // Load saved state from localStorage after hydration
-  useEffect(() => {
-    setIsHydrated(true);
-    
-    // Load map instances
-    const storedMaps = localStorage.getItem('ningaloo-map-instances');
-    if (storedMaps) {
-      try {
-        const parsedMaps = JSON.parse(storedMaps);
-        setMapInstances(parsedMaps);
-      } catch (error) {
-        console.error('Failed to parse stored map instances:', error);
-      }
-    }
-    
-    // Load time range
-    const storedTimeRange = localStorage.getItem('ningaloo-time-range');
-    if (storedTimeRange) {
-      try {
-        const parsed = JSON.parse(storedTimeRange);
-        setSelectedTimeRange({
-          start: new Date(parsed.start),
-          end: new Date(parsed.end),
-          granularity: parsed.granularity
-        });
-      } catch (error) {
-        console.error('Failed to parse stored time range:', error);
-      }
-    }
-  }, []);
-
-  // Save map instances to localStorage whenever they change (only after hydration)
-  useEffect(() => {
-    if (isHydrated) {
-      localStorage.setItem('ningaloo-map-instances', JSON.stringify(mapInstances));
-    }
-  }, [mapInstances, isHydrated]);
-
-  // Save time range to localStorage whenever it changes (only after hydration)
-  useEffect(() => {
-    if (isHydrated) {
-      localStorage.setItem('ningaloo-time-range', JSON.stringify({
-        start: selectedTimeRange.start.toISOString(),
-        end: selectedTimeRange.end.toISOString(),
-        granularity: selectedTimeRange.granularity
-      }));
-    }
-  }, [selectedTimeRange, isHydrated]);
+  const {
+    lastUpdate,
+    isUpdating,
+    updateData,
+    missingFiles,
+    getParameterFiles,
+  } = useDataStore();
 
   const availableParameters: Parameter[] = [
-    { id: "ssth", name: "Sea Surface Temperature (Himawari)", unit: "°C", color: "#ef4444", icon: <Thermometer className="h-4 w-4" /> },
-    { id: "sst-s3a", name: "Sea Surface Temperature (Sentinel-3A)", unit: "°C", color: "#ef4444", icon: <Thermometer className="h-4 w-4" /> },
-    { id: "sst-s3b", name: "Sea Surface Temperature (Sentinel-3B)", unit: "°C", color: "#ef4444", icon: <Thermometer className="h-4 w-4" /> },
-    { id: "chl-s3a", name: "Chlorophyll-a (Sentinel-3A)", unit: "mg/m³", color: "#22c55e", icon: <Activity className="h-4 w-4" /> },
-    { id: "chl-s3b", name: "Chlorophyll-a (Sentinel-3B)", unit: "mg/m³", color: "#22c55e", icon: <Activity className="h-4 w-4" /> },
-    { id: "b02-s2a", name: "B02 Reflectance (Sentinel-2A L2A)", unit: "reflectance", color: "#8b5cf6", icon: <Eye className="h-4 w-4" /> },
-    { id: "b02-s2b", name: "B02 Reflectance (Sentinel-2B L2A)", unit: "reflectance", color: "#8b5cf6", icon: <Eye className="h-4 w-4" /> },
-    { id: "ssha-swot", name: "Sea Surface Height Anomaly (SWOT, ssha_filtered)", unit: "m", color: "#3b82f6", icon: <Waves className="h-4 w-4" /> },
+    {
+      id: "ssth",
+      name: "Sea Surface Temperature (Himawari)",
+      unit: "°C",
+      color: "#ef4444",
+      icon: <Thermometer className="h-4 w-4" />,
+    },
+    {
+      id: "sst-s3a",
+      name: "Sea Surface Temperature (Sentinel-3A)",
+      unit: "°C",
+      color: "#ef4444",
+      icon: <Thermometer className="h-4 w-4" />,
+    },
+    {
+      id: "sst-s3b",
+      name: "Sea Surface Temperature (Sentinel-3B)",
+      unit: "°C",
+      color: "#ef4444",
+      icon: <Thermometer className="h-4 w-4" />,
+    },
+    {
+      id: "chl-s3a",
+      name: "Chlorophyll-a (Sentinel-3A)",
+      unit: "mg/m³",
+      color: "#22c55e",
+      icon: <Activity className="h-4 w-4" />,
+    },
+    {
+      id: "chl-s3b",
+      name: "Chlorophyll-a (Sentinel-3B)",
+      unit: "mg/m³",
+      color: "#22c55e",
+      icon: <Activity className="h-4 w-4" />,
+    },
+    {
+      id: "b02-s2a",
+      name: "B02 Reflectance (Sentinel-2A L2A)",
+      unit: "reflectance",
+      color: "#8b5cf6",
+      icon: <Eye className="h-4 w-4" />,
+    },
+    {
+      id: "b02-s2b",
+      name: "B02 Reflectance (Sentinel-2B L2A)",
+      unit: "reflectance",
+      color: "#8b5cf6",
+      icon: <Eye className="h-4 w-4" />,
+    },
+    {
+      id: "ssha-swot",
+      name: "Sea Surface Height Anomaly (SWOT, ssha_filtered)",
+      unit: "m",
+      color: "#3b82f6",
+      icon: <Waves className="h-4 w-4" />,
+    },
   ];
 
   // Cap at 4 instances
@@ -124,7 +128,9 @@ export default function NingalooResearchApp() {
     const param = availableParameters.find((p) => p.id === parameter);
     if (!param) return;
     setMapInstances((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, parameter, title: param.name } : m))
+      prev.map((m) =>
+        m.id === id ? { ...m, parameter, title: param.name } : m
+      )
     );
   };
 
@@ -138,7 +144,7 @@ export default function NingalooResearchApp() {
     if (n <= 1) return "grid grid-cols-1 gap-6";
     if (n === 2) return "grid grid-cols-2 gap-6";
     if (n === 3) return "grid grid-cols-2 grid-rows-2 gap-6";
-    return "grid grid-cols-2 grid-rows-2 gap-6"; // 4
+    return "grid grid-cols-2 grid-rows-2 gap-6"; // 4 maps in 2x2 grid
   }, [mapInstances.length]);
 
   // For 3 maps: first map spans both columns in first row, next two in second row
@@ -159,7 +165,7 @@ export default function NingalooResearchApp() {
         backgroundAttachment: "fixed",
         backgroundSize: "100% 100%, 100% 100%, 100% 100%",
         backgroundPosition: "center, center, center",
-        backgroundBlendMode: "multiply, overlay, normal"
+        backgroundBlendMode: "multiply, overlay, normal",
       }}
     >
       {/* Fullscreen Overlay */}
@@ -187,12 +193,16 @@ export default function NingalooResearchApp() {
               {mapInstances
                 .filter((m) => m.id === fullscreenMap)
                 .map((m) => (
-                  <div key={m.id} className="h-full rounded-lg border border-slate-300 shadow-sm overflow-hidden">
+                  <div
+                    key={m.id}
+                    className="h-full rounded-lg border border-slate-300 shadow-sm overflow-hidden"
+                  >
                     <ResearchMap
                       parameter={m.parameter}
                       timeRange={selectedTimeRange}
                       availableParameters={availableParameters}
                       isFullscreen={true}
+                      getParameterFiles={getParameterFiles}
                     />
                   </div>
                 ))}
@@ -225,18 +235,23 @@ export default function NingalooResearchApp() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <div className="text-sm text-gray-200">
-              Last update: {lastUpdate ? new Date(lastUpdate).toLocaleString() : "Never"}
+            <div className="text-sm text-slate-600">
+              Last update:{" "}
+              {lastUpdate ? new Date(lastUpdate).toLocaleString() : "Never"}
             </div>
             <Button
               onClick={updateData}
               disabled={isUpdating}
               className="bg-cyan-600 hover:bg-cyan-700 text-white shadow-sm"
             >
-              <RefreshCw className={`h-4 w-4 mr-2 ${isUpdating ? "animate-spin" : ""}`} />
+              <RefreshCw
+                className={`h-4 w-4 mr-2 ${isUpdating ? "animate-spin" : ""}`}
+              />
               Update Data
             </Button>
-            {missingFiles > 0 && <Badge variant="destructive">{missingFiles} missing files</Badge>}
+            {missingFiles > 0 && (
+              <Badge variant="destructive">{missingFiles} missing files</Badge>
+            )}
           </div>
         </div>
 
@@ -254,9 +269,12 @@ export default function NingalooResearchApp() {
         </Card>
 
         {/* Maps Grid */}
-        <div className={gridClass}>
+        <div className={`${gridClass} h-96`}>
           {mapInstances.map((instance, index) => (
-            <div key={instance.id} className={cellSpan(mapInstances.length, index)}>
+            <div
+              key={instance.id}
+              className={cellSpan(mapInstances.length, index)}
+            >
               <Card className="w-full h-full overflow-hidden bg-white/10 backdrop-blur-md border border-white/20 shadow-xl text-white flex flex-col">
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between gap-2">
@@ -264,12 +282,18 @@ export default function NingalooResearchApp() {
                       <MapIcon className="h-5 w-5 flex-shrink-0" />
                       <select
                         value={instance.parameter}
-                        onChange={(e) => updateMapParameter(instance.id, e.target.value)}
+                        onChange={(e) =>
+                          updateMapParameter(instance.id, e.target.value)
+                        }
                         className="text-sm font-semibold border-0 bg-white/10 text-white rounded px-2 py-1 truncate outline-none focus:ring-2 focus:ring-cyan-400"
                         aria-label="Select parameter"
                       >
                         {availableParameters.map((p) => (
-                          <option key={p.id} value={p.id} className="text-black">
+                          <option
+                            key={p.id}
+                            value={p.id}
+                            className="text-black"
+                          >
                             {p.name}
                           </option>
                         ))}
@@ -281,34 +305,30 @@ export default function NingalooResearchApp() {
                         variant="outline"
                         size="sm"
                         onClick={() => toggleFullscreen(instance.id)}
-                        className="h-8 w-8 p-0 text-black hover:bg-gray-100"
+                        className="h-8 w-8 p-0"
                         title="Fullscreen"
                       >
                         <Maximize2 className="h-4 w-4" />
                       </Button>
-                      {mapInstances.length > 1 && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => removeMapInstance(instance.id)}
-                          className="h-8 w-8 p-0 text-black hover:bg-red-600/10 hover:text-red-600"
-                          title="Close"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => removeMapInstance(instance.id)}
+                        className="h-8 w-8 p-0"
+                        title="Remove Map"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
                 </CardHeader>
-
-                <CardContent className="pt-0 h-full flex flex-col">
-                  <div className="h-full min-h-[320px]">
-                    <ResearchMap
-                      parameter={instance.parameter}
-                      timeRange={selectedTimeRange}
-                      availableParameters={availableParameters}
-                    />
-                  </div>
+                <CardContent className="pt-0">
+                  <ResearchMap
+                    parameter={instance.parameter}
+                    timeRange={selectedTimeRange}
+                    availableParameters={availableParameters}
+                    getParameterFiles={getParameterFiles}
+                  />
                 </CardContent>
               </Card>
             </div>
