@@ -208,13 +208,35 @@ export function ResearchMap({
   }
 
   return (
-    <div className="relative h-full w-full bg-slate-900 rounded-lg overflow-hidden">
+    <div
+      className={`relative ${
+        isFullscreen ? "h-full" : "h-96"
+      } rounded-lg overflow-hidden`}
+      style={{
+        background: `
+        radial-gradient(ellipse at 20% 30%, #0a1a2e 0%, #16213e 40%, #1e3a8a 80%, #3b82f6 100%),
+        linear-gradient(135deg, #0f172a 0%, #1e3a8a 30%, #3b82f6 60%, #60a5fa 100%)
+      `,
+        backgroundBlendMode: "multiply, normal",
+      }}
+    >
       {imageUrl && satelliteMapping ? (
-        <div className="relative h-full">
+        <div
+          className="absolute inset-0 w-full h-full flex items-center justify-center"
+          style={{
+            background: `
+            radial-gradient(ellipse at center, #0a1a2e 0%, #16213e 30%, #1e3a8a 70%, #3b82f6 100%),
+            linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #3b82f6 100%)
+          `,
+            backgroundBlendMode: "multiply, normal",
+          }}
+        >
           <img
             src={imageUrl}
             alt={`${currentParam?.name} visualization`}
-            className="w-full h-full object-cover"
+            className={`${
+              isFullscreen ? "max-w-full max-h-full" : "w-full h-full"
+            } object-contain rounded-lg`}
             style={{ filter: "contrast(1.1) brightness(1.1)" }}
           />
           {/* Overlay for better text readability */}

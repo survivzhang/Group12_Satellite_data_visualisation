@@ -269,7 +269,7 @@ export default function NingalooResearchApp() {
         </Card>
 
         {/* Maps Grid */}
-        <div className={`${gridClass} h-96`}>
+        <div className={gridClass}>
           {mapInstances.map((instance, index) => (
             <div
               key={instance.id}
