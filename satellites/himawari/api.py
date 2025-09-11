@@ -465,10 +465,10 @@ class HimawariAPI(BaseSatelliteAPI):
             repair_data = {
                 "start_time": '2025-03-01T00:00:00',
                 "end_time": '2025-03-01T12:00:00',
-                "west_lon": 113.0,
-                "east_lon": 115.0,
-                "south_lat": -24.0,
-                "north_lat": -21.0
+                "west_lon": 111.0,
+                "east_lon": 114.0,
+                "south_lat": -25.0,
+                "north_lat": -20.0
             }
             
             return await self._repair_missing_files(repair_data, background_tasks)
