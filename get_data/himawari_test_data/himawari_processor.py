@@ -274,34 +274,65 @@ class HimawariDataProcessor:
             self._create_visualization(ds_cropped, sst_name, time_name, time_str)
     
     def _create_visualization(self, ds: xr.Dataset, sst_name: str, time_name: str, time_str: str):
-        """Create PNG visualization of SST data."""
+        """Create PNG visualization of SST data with lon/lat axes."""
         sst = ds[sst_name]
-        
-        # Handle time dimension
-        if time_name in sst.dims and sst.sizes[time_name] >= 1:
+
+    # 取第一帧（如果有时间维）
+        if time_name in sst.dims and sst.sizes.get(time_name, 0) >= 1:
             sst0 = sst.isel({time_name: 0})
         else:
             sst0 = sst
-        
-        # Check for valid data
+
+    # 无有效数据直接跳过
         if not np.isfinite(sst0.values).any():
             print(f"SST all-NaN for {time_str}, skipping PNG.")
             return
-        
+
+    # 读取经纬度坐标名
+        lon_name = self._pick_coord_name(ds, ["lon", "longitude"])
+        lat_name = self._pick_coord_name(ds, ["lat", "latitude"])
+
+    # 读取经纬度数据（支持 1D/2D）
+        lon = ds[lon_name].values
+        lat = ds[lat_name].values
+
+        if lon.ndim == 1 and lat.ndim == 1:
+            west, east = float(np.nanmin(lon)), float(np.nanmax(lon))
+            south, north = float(np.nanmin(lat)), float(np.nanmax(lat))
+        else:
+        # 2D 网格
+            west, east = float(np.nanmin(lon)), float(np.nanmax(lon))
+            south, north = float(np.nanmin(lat)), float(np.nanmax(lat))
+
+        extent = [west, east, south, north]
+
+    # 颜色范围
         vmin = float(np.nanmin(sst0.values))
         vmax = float(np.nanmax(sst0.values))
-        
-        # Create plot
+
+    # 绘图
         fig, ax = plt.subplots(figsize=(10, 8))
-        im = ax.imshow(sst0.values, origin="lower", cmap="turbo", vmin=vmin, vmax=vmax)
+        im = ax.imshow(
+            sst0.values,
+            origin="lower",
+            cmap="turbo",
+            vmin=vmin,
+            vmax=vmax,
+            extent=extent,  # 关键：按经纬度定位
+            aspect="auto"
+        )
         plt.colorbar(im, ax=ax, label="Sea Surface Temperature (K)")
+        ax.set_xlabel("Longitude (°)")
+        ax.set_ylabel("Latitude (°)")
         ax.set_title(f"Himawari-9 SST {time_str}")
         plt.tight_layout()
-        
+
         png_path = self.png_dir / f"{time_str}.png"
-        plt.savefig(png_path, dpi=150, bbox_inches='tight')
+        plt.savefig(png_path, dpi=150, bbox_inches="tight")
         plt.close()
         print(f"Saved PNG: {png_path}")
+
+
     
     @staticmethod
     def _cap_temporal_by_delay(t0: str, t1: str, delay_hours: int = 4) -> Tuple[str, str]:
@@ -642,8 +673,8 @@ def run_himawari_workflow_example():
     
     # Configuration parameters
     timelims = ("2025-03-01T00:00:00", "2025-03-01T12:00:00")
-    lonlims = (111, 116)  # Western Australia region
-    latlims = (-24.5, -19.5)
+    lonlims = (111, 114)  # Western Australia region
+    latlims = (-25, -20)
     tstep = 3600  # 1 hour interval
     
     # Create workflow instance
