@@ -63,6 +63,38 @@ const SATELLITE_MAPPING = {
   },
 };
 
+// 辅助函数：获取参数值的占位符
+const getPlaceholderValue = (param: string, type: 'min' | 'max'): string => {
+  switch (param) {
+    case 'ssth':
+      return type === 'min' ? '290' : '310'; // SST in Kelvin
+    case 'sst-s3a':
+    case 'sst-s3b':
+      return type === 'min' ? '15' : '35'; // SST in Celsius
+    case 'chl-s3a':
+    case 'chl-s3b':
+      return type === 'min' ? '0.01' : '10'; // Chl in mg/m³
+    default:
+      return type === 'min' ? '0' : '100';
+  }
+};
+
+// 辅助函数：获取参数的典型范围
+const getTypicalRange = (param: string): string => {
+  switch (param) {
+    case 'ssth':
+      return '290-310 K (Sea Surface Temperature)';
+    case 'sst-s3a':
+    case 'sst-s3b':
+      return '15-35°C (Sea Surface Temperature)';
+    case 'chl-s3a':
+    case 'chl-s3b':
+      return '0.01-10 mg/m³ (Chlorophyll-a)';
+    default:
+      return 'Check parameter documentation';
+  }
+};
+
 export function ResearchMap({
   parameter,
   timeRange,
@@ -70,10 +102,8 @@ export function ResearchMap({
   isFullscreen,
   getParameterFiles,
 }: ResearchMapProps): JSX.Element {
-  const [longitudeFrom, setLongitudeFrom] = useState<string>("");
-  const [longitudeTo, setLongitudeTo] = useState<string>("");
-  const [latitudeFrom, setLatitudeFrom] = useState<string>("");
-  const [latitudeTo, setLatitudeTo] = useState<string>("");
+  const [parameterMin, setParameterMin] = useState<string>("");
+  const [parameterMax, setParameterMax] = useState<string>("");
   const [isRangeDialogOpen, setIsRangeDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -326,7 +356,7 @@ export function ResearchMap({
           </Badge>
         )}
 
-        {/* Coordinate Range Selector Button */}
+        {/* Parameter Value Range Selector Button */}
         <Dialog open={isRangeDialogOpen} onOpenChange={setIsRangeDialogOpen}>
           <DialogTrigger asChild>
             <Button
@@ -335,82 +365,53 @@ export function ResearchMap({
               className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 w-fit"
             >
               <Settings className="h-3 w-3 mr-1" />
-              Coordinates
+              Range
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-lg">
+          <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Select Coordinate Range</DialogTitle>
+              <DialogTitle>Select {currentParam?.name} Range</DialogTitle>
             </DialogHeader>
-            <div className="space-y-6">
-              {/* Longitude Range */}
+            <div className="space-y-4">
+              {/* Parameter Range Input */}
               <div className="space-y-3">
-                <h4 className="text-sm font-medium text-gray-700">Longitude Range (°E)</h4>
+                <h4 className="text-sm font-medium text-gray-700">
+                  {currentParam?.name} Value Range
+                  {currentParam?.unit && ` (${currentParam.unit})`}
+                </h4>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label htmlFor="lon-from" className="text-xs">From</Label>
+                    <Label htmlFor="param-min" className="text-xs">Minimum</Label>
                     <Input
-                      id="lon-from"
+                      id="param-min"
                       type="number"
-                      step="0.1"
-                      placeholder="e.g., 111.5"
-                      value={longitudeFrom}
-                      onChange={(e) => setLongitudeFrom(e.target.value)}
+                      step="0.01"
+                      placeholder={getPlaceholderValue(parameter, 'min')}
+                      value={parameterMin}
+                      onChange={(e) => setParameterMin(e.target.value)}
                       className="text-sm"
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label htmlFor="lon-to" className="text-xs">To</Label>
+                    <Label htmlFor="param-max" className="text-xs">Maximum</Label>
                     <Input
-                      id="lon-to"
+                      id="param-max"
                       type="number"
-                      step="0.1"
-                      placeholder="e.g., 113.5"
-                      value={longitudeTo}
-                      onChange={(e) => setLongitudeTo(e.target.value)}
+                      step="0.01"
+                      placeholder={getPlaceholderValue(parameter, 'max')}
+                      value={parameterMax}
+                      onChange={(e) => setParameterMax(e.target.value)}
                       className="text-sm"
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Latitude Range */}
-              <div className="space-y-3">
-                <h4 className="text-sm font-medium text-gray-700">Latitude Range (°N)</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label htmlFor="lat-from" className="text-xs">From</Label>
-                    <Input
-                      id="lat-from"
-                      type="number"
-                      step="0.1"
-                      placeholder="e.g., -24.0"
-                      value={latitudeFrom}
-                      onChange={(e) => setLatitudeFrom(e.target.value)}
-                      className="text-sm"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="lat-to" className="text-xs">To</Label>
-                    <Input
-                      id="lat-to"
-                      type="number"
-                      step="0.1"
-                      placeholder="e.g., -22.0"
-                      value={latitudeTo}
-                      onChange={(e) => setLatitudeTo(e.target.value)}
-                      className="text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Current Map Range Display */}
+              {/* Current Parameter Range Display */}
               <div className="p-3 bg-gray-50 rounded-md">
-                <p className="text-xs text-gray-600 mb-2">Current map range:</p>
+                <p className="text-xs text-gray-600 mb-2">Typical range for {currentParam?.name}:</p>
                 <div className="text-xs text-gray-500">
-                  <p>Longitude: 111.5°E to 113.5°E</p>
-                  <p>Latitude: -24.0°N to -22.0°N</p>
+                  <p>{getTypicalRange(parameter)}</p>
                 </div>
               </div>
 
@@ -423,10 +424,11 @@ export function ResearchMap({
                 </Button>
                 <Button
                   onClick={() => {
-                    // Handle coordinate range selection logic here
-                    console.log("Coordinate range selected:", {
-                      longitude: { from: longitudeFrom, to: longitudeTo },
-                      latitude: { from: latitudeFrom, to: latitudeTo },
+                    // Handle parameter range selection logic here
+                    console.log("Parameter range selected:", {
+                      parameter: currentParam?.name,
+                      min: parameterMin,
+                      max: parameterMax,
                     });
                     setIsRangeDialogOpen(false);
                   }}
