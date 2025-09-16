@@ -104,11 +104,23 @@ export function ResearchMap({
 }: ResearchMapProps): JSX.Element {
   const [parameterMin, setParameterMin] = useState<string>("");
   const [parameterMax, setParameterMax] = useState<string>("");
+  const [appliedMin, setAppliedMin] = useState<string>("");
+  const [appliedMax, setAppliedMax] = useState<string>("");
   const [isRangeDialogOpen, setIsRangeDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [filteredImageUrl, setFilteredImageUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState(false);
   const [availableFiles, setAvailableFiles] = useState<any[]>([]);
+  const [dataStats, setDataStats] = useState<{
+    min: number;
+    max: number;
+    mean: number;
+    units: string;
+  } | null>(null);
+  const [isLoadingStats, setIsLoadingStats] = useState(false);
+  const [isGeneratingFilteredImage, setIsGeneratingFilteredImage] =
+    useState(false);
 
   // 如果没有传入getParameterFiles，则使用useDataStore（向后兼容）
   const dataStore = !getParameterFiles ? useDataStore() : null;
@@ -145,6 +157,81 @@ export function ResearchMap({
       return `${year}${month}${day}_${hour}${minute}${second}`;
     }
   }, [parameter, timeRange.start, satelliteMapping]);
+
+  // 获取数据统计信息的函数
+  const fetchDataStats = async (filename: string) => {
+    if (!satelliteMapping) return;
+
+    setIsLoadingStats(true);
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/v1/satellites/${satelliteMapping.satellite}/${satelliteMapping.parameter}/stats/${filename}`
+      );
+
+      if (response.ok) {
+        const stats = await response.json();
+        setDataStats({
+          min: stats.min,
+          max: stats.max,
+          mean: stats.mean,
+          units: stats.units,
+        });
+        console.log(`Data stats for ${filename}:`, stats);
+      } else {
+        console.warn(
+          `Failed to get data stats for ${filename}:`,
+          response.statusText
+        );
+      }
+    } catch (error) {
+      console.error(`Error fetching data stats for ${filename}:`, error);
+    } finally {
+      setIsLoadingStats(false);
+    }
+  };
+
+  // 生成过滤图片的函数
+  const generateFilteredImage = async (
+    filename: string,
+    minValue?: number,
+    maxValue?: number
+  ) => {
+    if (!satelliteMapping) return;
+
+    setIsGeneratingFilteredImage(true);
+    try {
+      const params = new URLSearchParams();
+      if (minValue !== undefined)
+        params.append("min_value", minValue.toString());
+      if (maxValue !== undefined)
+        params.append("max_value", maxValue.toString());
+
+      const response = await fetch(
+        `http://localhost:8000/api/v1/satellites/${
+          satelliteMapping.satellite
+        }/${
+          satelliteMapping.parameter
+        }/filtered-image/${filename}?${params.toString()}`
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        setFilteredImageUrl(result.image);
+        console.log(`Generated filtered image for ${filename}:`, result);
+      } else {
+        console.warn(
+          `Failed to generate filtered image for ${filename}:`,
+          response.statusText
+        );
+        setFilteredImageUrl(null);
+      }
+    } catch (error) {
+      console.error(`Error generating filtered image for ${filename}:`, error);
+      setFilteredImageUrl(null);
+    } finally {
+      setIsGeneratingFilteredImage(false);
+    }
+  };
 
   // 获取可用文件列表
   useEffect(() => {
@@ -227,6 +314,10 @@ export function ResearchMap({
         console.log(`Loading ${parameter} image:`, targetFile.filename);
         console.log(`Image URL: ${pngUrl}`);
 
+        // 获取对应的NC文件名来获取数据统计信息
+        const ncFilename = targetFile.filename.replace(".png", ".nc");
+        fetchDataStats(ncFilename);
+
         // Check if image exists
         const img = new Image();
         img.onload = () => {
@@ -282,7 +373,7 @@ export function ResearchMap({
         backgroundBlendMode: "multiply, normal",
       }}
     >
-      {imageUrl && satelliteMapping ? (
+      {(imageUrl || filteredImageUrl) && satelliteMapping ? (
         <div
           className="absolute inset-0 w-full h-full flex items-center justify-center"
           style={{
@@ -293,14 +384,38 @@ export function ResearchMap({
             backgroundBlendMode: "multiply, normal",
           }}
         >
-          <img
-            src={imageUrl}
-            alt={`${currentParam?.name} visualization`}
-            className={`${
-              isFullscreen ? "max-w-full max-h-full" : "w-full h-full"
-            } object-contain rounded-lg`}
-            style={{ filter: "contrast(1.1) brightness(1.1)" }}
-          />
+          <div className="relative w-full h-full">
+            {/* Show filtered image if available, otherwise show original */}
+            <img
+              src={filteredImageUrl || imageUrl}
+              alt={`${currentParam?.name} visualization`}
+              className={`${
+                isFullscreen ? "max-w-full max-h-full" : "w-full h-full"
+              } object-contain rounded-lg`}
+              style={{
+                filter: "contrast(1.1) brightness(1.1)",
+              }}
+            />
+
+            {/* Loading indicator for filtered image generation */}
+            {isGeneratingFilteredImage && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-lg">
+                <div className="text-white text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
+                  <div className="text-sm">Generating filtered image...</div>
+                </div>
+              </div>
+            )}
+
+            {/* Range indicator */}
+            {(appliedMin || appliedMax) && dataStats && (
+              <div className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
+                Range: {appliedMin || dataStats.min.toFixed(3)} -{" "}
+                {appliedMax || dataStats.max.toFixed(3)}
+                {filteredImageUrl && " (Filtered)"}
+              </div>
+            )}
+          </div>
           {/* Overlay for better text readability */}
           <div className="absolute inset-0 bg-black/10"></div>
         </div>
@@ -356,6 +471,16 @@ export function ResearchMap({
           </Badge>
         )}
 
+        {/* Applied Range Display */}
+        {(appliedMin || appliedMax) && (
+          <Badge className="bg-blue-500/20 backdrop-blur text-blue-100 border-blue-400/30 whitespace-nowrap">
+            <div className="text-xs">
+              Range: {appliedMin || "auto"} - {appliedMax || "auto"}
+              {currentParam?.unit && ` ${currentParam.unit}`}
+            </div>
+          </Badge>
+        )}
+
         {/* Parameter Value Range Selector Button */}
         <Dialog open={isRangeDialogOpen} onOpenChange={setIsRangeDialogOpen}>
           <DialogTrigger asChild>
@@ -366,6 +491,11 @@ export function ResearchMap({
             >
               <Settings className="h-3 w-3 mr-1" />
               Range
+              {(appliedMin || appliedMax) && (
+                <Badge className="ml-1 bg-green-500/20 text-green-100 border-green-400/30 text-xs">
+                  ✓
+                </Badge>
+              )}
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
@@ -379,68 +509,213 @@ export function ResearchMap({
                   {currentParam?.name} Value Range
                   {currentParam?.unit && ` (${currentParam.unit})`}
                 </h4>
+
+                {/* Current Applied Range Display */}
+                {(appliedMin || appliedMax) && (
+                  <div className="p-2 bg-blue-50 rounded-md border border-blue-200">
+                    <p className="text-xs text-blue-700 font-medium mb-1">
+                      Currently Applied:
+                    </p>
+                    <p className="text-xs text-blue-600">
+                      {appliedMin || "auto"} - {appliedMax || "auto"}
+                      {currentParam?.unit && ` ${currentParam.unit}`}
+                    </p>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <Label htmlFor="param-min" className="text-xs">
                       Minimum
+                      {dataStats && (
+                        <span className="text-gray-500 ml-1">
+                          (min: {dataStats.min.toFixed(3)})
+                        </span>
+                      )}
                     </Label>
                     <Input
                       id="param-min"
                       type="number"
                       step="0.01"
-                      placeholder={getPlaceholderValue(parameter, "min")}
+                      placeholder={
+                        dataStats
+                          ? `${dataStats.min.toFixed(3)}`
+                          : getPlaceholderValue(parameter, "min")
+                      }
                       value={parameterMin}
                       onChange={(e) => setParameterMin(e.target.value)}
+                      min={dataStats ? dataStats.min : undefined}
+                      max={dataStats ? dataStats.max : undefined}
                       className="text-sm"
                     />
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="param-max" className="text-xs">
                       Maximum
+                      {dataStats && (
+                        <span className="text-gray-500 ml-1">
+                          (max: {dataStats.max.toFixed(3)})
+                        </span>
+                      )}
                     </Label>
                     <Input
                       id="param-max"
                       type="number"
                       step="0.01"
-                      placeholder={getPlaceholderValue(parameter, "max")}
+                      placeholder={
+                        dataStats
+                          ? `${dataStats.max.toFixed(3)}`
+                          : getPlaceholderValue(parameter, "max")
+                      }
                       value={parameterMax}
                       onChange={(e) => setParameterMax(e.target.value)}
+                      min={dataStats ? dataStats.min : undefined}
+                      max={dataStats ? dataStats.max : undefined}
                       className="text-sm"
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Current Parameter Range Display */}
-              <div className="p-3 bg-gray-50 rounded-md">
-                <p className="text-xs text-gray-600 mb-2">
-                  Typical range for {currentParam?.name}:
-                </p>
-                <div className="text-xs text-gray-500">
-                  <p>{getTypicalRange(parameter)}</p>
+              {/* Data Statistics Display */}
+              {dataStats ? (
+                <div className="p-3 bg-blue-50 rounded-md border border-blue-200">
+                  <p className="text-xs text-blue-700 font-medium mb-2">
+                    Current Image Data Range:
+                  </p>
+                  <div className="text-xs text-blue-600 space-y-1">
+                    <p>
+                      Min: {dataStats.min.toFixed(3)} {dataStats.units}
+                    </p>
+                    <p>
+                      Max: {dataStats.max.toFixed(3)} {dataStats.units}
+                    </p>
+                    <p>
+                      Mean: {dataStats.mean.toFixed(3)} {dataStats.units}
+                    </p>
+                  </div>
                 </div>
-              </div>
+              ) : isLoadingStats ? (
+                <div className="p-3 bg-gray-50 rounded-md">
+                  <p className="text-xs text-gray-600">
+                    Loading data statistics...
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 bg-gray-50 rounded-md">
+                  <p className="text-xs text-gray-600 mb-2">
+                    Typical range for {currentParam?.name}:
+                  </p>
+                  <div className="text-xs text-gray-500">
+                    <p>{getTypicalRange(parameter)}</p>
+                  </div>
+                </div>
+              )}
 
-              <div className="flex justify-end space-x-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setIsRangeDialogOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => {
-                    // Handle parameter range selection logic here
-                    console.log("Parameter range selected:", {
-                      parameter: currentParam?.name,
-                      min: parameterMin,
-                      max: parameterMax,
-                    });
-                    setIsRangeDialogOpen(false);
-                  }}
-                >
-                  Apply Range
-                </Button>
+              <div className="flex justify-between">
+                <div className="flex space-x-2">
+                  {(appliedMin || appliedMax) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setAppliedMin("");
+                        setAppliedMax("");
+                        setParameterMin("");
+                        setParameterMax("");
+                        setFilteredImageUrl(null);
+                        console.log("Parameter range reset");
+                      }}
+                      className="text-red-600 border-red-300 hover:bg-red-50"
+                    >
+                      Reset
+                    </Button>
+                  )}
+                </div>
+                <div className="flex space-x-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsRangeDialogOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      // Apply the parameter range settings
+                      const minValue = parameterMin.trim();
+                      const maxValue = parameterMax.trim();
+
+                      // Validate range values
+                      if (minValue && maxValue) {
+                        const minNum = parseFloat(minValue);
+                        const maxNum = parseFloat(maxValue);
+
+                        if (minNum >= maxNum) {
+                          alert(
+                            "Minimum value must be less than maximum value"
+                          );
+                          return;
+                        }
+
+                        // Validate against actual data range
+                        if (dataStats) {
+                          if (minNum < dataStats.min) {
+                            alert(
+                              `Minimum value (${minNum}) cannot be less than data minimum (${dataStats.min.toFixed(
+                                3
+                              )})`
+                            );
+                            return;
+                          }
+                          if (maxNum > dataStats.max) {
+                            alert(
+                              `Maximum value (${maxNum}) cannot be greater than data maximum (${dataStats.max.toFixed(
+                                3
+                              )})`
+                            );
+                            return;
+                          }
+                        }
+                      }
+
+                      // Apply the range settings
+                      setAppliedMin(minValue);
+                      setAppliedMax(maxValue);
+
+                      console.log("Parameter range applied:", {
+                        parameter: currentParam?.name,
+                        min: minValue,
+                        max: maxValue,
+                      });
+
+                      // Generate filtered image if we have a current file
+                      if (availableFiles.length > 0) {
+                        const currentFile = availableFiles.find((f) =>
+                          f.filename.includes(
+                            currentTimestamp?.substring(0, 8) || ""
+                          )
+                        );
+                        if (currentFile) {
+                          const ncFilename = currentFile.filename.replace(
+                            ".png",
+                            ".nc"
+                          );
+                          const minNum = minValue
+                            ? parseFloat(minValue)
+                            : undefined;
+                          const maxNum = maxValue
+                            ? parseFloat(maxValue)
+                            : undefined;
+                          generateFilteredImage(ncFilename, minNum, maxNum);
+                        }
+                      }
+
+                      setIsRangeDialogOpen(false);
+                    }}
+                  >
+                    Apply Range
+                  </Button>
+                </div>
               </div>
             </div>
           </DialogContent>

@@ -616,6 +616,213 @@ async def download_nc_file(satellite: str, parameter: str, filename: str):
         print(f"❌ Error downloading file: {error_details}")
         raise HTTPException(status_code=500, detail=f"Failed to download file: {str(e)}")
 
+@app.get("/api/v1/satellites/{satellite}/{parameter}/stats/{filename}")
+async def get_data_stats(satellite: str, parameter: str, filename: str):
+    """Get data statistics (min, max, mean) from a specific NC file"""
+    if satellite not in SATELLITES:
+        raise HTTPException(status_code=404, detail=f"Satellite '{satellite}' not found")
+    
+    try:
+        import xarray as xr
+        import numpy as np
+        from pathlib import Path
+        
+        # Unified directory structure
+        base_data_dir = Path("data")
+        file_path = base_data_dir / satellite / parameter / "nc" / filename
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+        
+        # Read the NetCDF file
+        with xr.open_dataset(file_path, engine="netcdf4") as ds:
+            # Find the data variable (SST, chlorophyll, etc.)
+            data_var = None
+            for var_name in ["sea_surface_temperature", "analysed_sst", "sst", "chlorophyll_a", "chl"]:
+                if var_name in ds.data_vars:
+                    data_var = ds[var_name]
+                    break
+            
+            if data_var is None:
+                raise HTTPException(status_code=400, detail="No data variable found in file")
+            
+            # Get valid data (exclude NaN values)
+            valid_data = data_var.values[~np.isnan(data_var.values)]
+            
+            if len(valid_data) == 0:
+                raise HTTPException(status_code=400, detail="No valid data found in file")
+            
+            # Calculate statistics
+            stats = {
+                "min": float(np.min(valid_data)),
+                "max": float(np.max(valid_data)),
+                "mean": float(np.mean(valid_data)),
+                "std": float(np.std(valid_data)),
+                "count": int(len(valid_data)),
+                "units": data_var.attrs.get("units", "unknown"),
+                "parameter": parameter,
+                "satellite": satellite,
+                "filename": filename
+            }
+            
+            return stats
+            
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions as-is
+    except Exception as e:
+        import traceback
+        error_details = {
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "satellite": satellite,
+            "parameter": parameter,
+            "filename": filename
+        }
+        print(f"❌ Error getting data stats: {error_details}")
+        raise HTTPException(status_code=500, detail=f"Failed to get data statistics: {str(e)}")
+
+@app.get("/api/v1/satellites/{satellite}/{parameter}/filtered-image/{filename}")
+async def get_filtered_image(
+    satellite: str, 
+    parameter: str, 
+    filename: str,
+    min_value: Optional[float] = None,
+    max_value: Optional[float] = None
+):
+    """Generate a filtered image based on value range"""
+    if satellite not in SATELLITES:
+        raise HTTPException(status_code=404, detail=f"Satellite '{satellite}' not found")
+    
+    try:
+        import xarray as xr
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import matplotlib.colors as mcolors
+        from pathlib import Path
+        import io
+        import base64
+        
+        # Unified directory structure
+        base_data_dir = Path("data")
+        file_path = base_data_dir / satellite / parameter / "nc" / filename
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+        
+        # Read the NetCDF file
+        with xr.open_dataset(file_path, engine="netcdf4") as ds:
+            # Find the data variable
+            data_var = None
+            for var_name in ["sea_surface_temperature", "analysed_sst", "sst", "chlorophyll_a", "chl"]:
+                if var_name in ds.data_vars:
+                    data_var = ds[var_name]
+                    break
+            
+            if data_var is None:
+                raise HTTPException(status_code=400, detail="No data variable found in file")
+            
+            # Get coordinates
+            lon_name = None
+            lat_name = None
+            for coord in ["lon", "longitude"]:
+                if coord in ds.coords:
+                    lon_name = coord
+                    break
+            for coord in ["lat", "latitude"]:
+                if coord in ds.coords:
+                    lat_name = coord
+                    break
+            
+            if not lon_name or not lat_name:
+                raise HTTPException(status_code=400, detail="Coordinate variables not found")
+            
+            # Get data and coordinates
+            data = data_var.values
+            lons = ds[lon_name].values
+            lats = ds[lat_name].values
+            
+            # Squeeze data to remove single dimensions
+            data = np.squeeze(data)
+            lons = np.squeeze(lons)
+            lats = np.squeeze(lats)
+            
+            # Get the full data range for absolute colormap
+            full_data = data.copy()
+            valid_full_data = full_data[~np.isnan(full_data)]
+            full_min = np.min(valid_full_data) if len(valid_full_data) > 0 else 0
+            full_max = np.max(valid_full_data) if len(valid_full_data) > 0 else 1
+            
+            # Apply range filtering
+            if min_value is not None or max_value is not None:
+                mask = np.ones_like(data, dtype=bool)
+                if min_value is not None:
+                    mask &= (data >= min_value)
+                if max_value is not None:
+                    mask &= (data <= max_value)
+                # Set values outside range to NaN
+                data = np.where(mask, data, np.nan)
+            
+            # Create the plot
+            fig, ax = plt.subplots(figsize=(10, 8), subplot_kw={'projection': None})
+            
+            # Use appropriate colormap (same as original images)
+            if parameter == "sst":
+                cmap = plt.cm.turbo  # Use turbo for SST (same as original)
+            elif parameter == "chl":
+                cmap = plt.cm.viridis  # Use viridis for chlorophyll
+            else:
+                cmap = plt.cm.viridis
+            
+            # Create meshgrid for plotting
+            if lons.ndim == 1 and lats.ndim == 1:
+                LON, LAT = np.meshgrid(lons, lats)
+            else:
+                LON, LAT = lons, lats
+            
+            # Plot the data with absolute colormap
+            im = ax.pcolormesh(LON, LAT, data, cmap=cmap, shading='nearest', vmin=full_min, vmax=full_max)
+            
+            # Add colorbar
+            cbar = plt.colorbar(im, ax=ax, shrink=0.8)
+            cbar.set_label(f'{parameter.upper()} ({data_var.attrs.get("units", "unknown")})')
+            
+            # Set title
+            ax.set_title(f'{satellite.upper()} {parameter.upper()} - {filename}')
+            ax.set_xlabel('Longitude')
+            ax.set_ylabel('Latitude')
+            
+            # Convert to base64
+            buffer = io.BytesIO()
+            plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight')
+            buffer.seek(0)
+            image_base64 = base64.b64encode(buffer.getvalue()).decode()
+            plt.close(fig)
+            
+            return {
+                "image": f"data:image/png;base64,{image_base64}",
+                "satellite": satellite,
+                "parameter": parameter,
+                "filename": filename,
+                "filter_range": {
+                    "min": min_value,
+                    "max": max_value
+                }
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_details = {
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "satellite": satellite,
+            "parameter": parameter,
+            "filename": filename
+        }
+        print(f"❌ Error generating filtered image: {error_details}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate filtered image: {str(e)}")
+
 # Simple processing endpoint (placeholder for now)
 @app.post("/api/v1/process", response_model=ProcessingStatus)
 async def process_data(request: ProcessingRequest, background_tasks: BackgroundTasks):
