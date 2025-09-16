@@ -5,10 +5,22 @@ import { Parameter, TimeRange } from "@/types/research";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { MapPin, Layers, Zap, Image as ImageIcon, Settings } from "lucide-react";
+import {
+  MapPin,
+  Layers,
+  Zap,
+  Image as ImageIcon,
+  Settings,
+} from "lucide-react";
 import { useDataStore } from "@/hooks/useDataStore";
 
 interface ResearchMapProps {
@@ -58,8 +70,10 @@ export function ResearchMap({
   isFullscreen,
   getParameterFiles,
 }: ResearchMapProps): JSX.Element {
-  const [rangeFrom, setRangeFrom] = useState<string>("");
-  const [rangeTo, setRangeTo] = useState<string>("");
+  const [longitudeFrom, setLongitudeFrom] = useState<string>("");
+  const [longitudeTo, setLongitudeTo] = useState<string>("");
+  const [latitudeFrom, setLatitudeFrom] = useState<string>("");
+  const [latitudeTo, setLatitudeTo] = useState<string>("");
   const [isRangeDialogOpen, setIsRangeDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -120,14 +134,14 @@ export function ResearchMap({
     if (timeMatch) {
       const dateStr = timeMatch[1]; // YYYYMMDD
       const timeStr = timeMatch[2]; // HHMMSS
-      
+
       const year = dateStr.substring(0, 4);
       const month = dateStr.substring(4, 6);
       const day = dateStr.substring(6, 8);
       const hour = timeStr.substring(0, 2);
       const minute = timeStr.substring(2, 4);
       const second = timeStr.substring(4, 6);
-      
+
       return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`);
     }
     return null;
@@ -149,7 +163,7 @@ export function ResearchMap({
         const selectedTime = timeRange.start.getTime();
         let bestFile = null;
         let bestTimeDiff = Infinity;
-        
+
         for (const file of availableFiles) {
           const fileTime = extractTimeFromSentinel3Filename(file.filename);
           if (fileTime && fileTime.getTime() <= selectedTime) {
@@ -216,7 +230,6 @@ export function ResearchMap({
       setImageError(false);
     }
   }, [satelliteMapping, currentTimestamp, availableFiles, parameter, imageUrl]);
-
 
   if (isLoading) {
     return (
@@ -292,12 +305,16 @@ export function ResearchMap({
           {imageUrl && satelliteMapping ? (
             <>
               <ImageIcon className="h-3 w-3 mr-1" />
-              <span className="truncate">{satelliteMapping.satellite.toUpperCase()} Image</span>
+              <span className="truncate">
+                {satelliteMapping.satellite.toUpperCase()} Image
+              </span>
             </>
           ) : (
             <>
               <MapPin className="h-3 w-3 mr-1" />
-              <span className="truncate">{satelliteMapping ? "No data available" : "Coming soon"}</span>
+              <span className="truncate">
+                {satelliteMapping ? "No data available" : "Coming soon"}
+              </span>
             </>
           )}
         </Badge>
@@ -308,59 +325,113 @@ export function ResearchMap({
             </div>
           </Badge>
         )}
-        
-        {/* Range Selector Button */}
+
+        {/* Coordinate Range Selector Button */}
         <Dialog open={isRangeDialogOpen} onOpenChange={setIsRangeDialogOpen}>
           <DialogTrigger asChild>
-            <Button 
-              variant="outline" 
-              size="sm" 
+            <Button
+              variant="outline"
+              size="sm"
               className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 w-fit"
             >
               <Settings className="h-3 w-3 mr-1" />
-              Range
+              Coordinates
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
+          <DialogContent className="sm:max-w-lg">
             <DialogHeader>
-              <DialogTitle>Select Data Range</DialogTitle>
+              <DialogTitle>Select Coordinate Range</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="range-from">From</Label>
-                <Input
-                  id="range-from"
-                  type="text"
-                  placeholder="Enter start value"
-                  value={rangeFrom}
-                  onChange={(e) => setRangeFrom(e.target.value)}
-                />
+            <div className="space-y-6">
+              {/* Longitude Range */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium text-gray-700">Longitude Range (°E)</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="lon-from" className="text-xs">From</Label>
+                    <Input
+                      id="lon-from"
+                      type="number"
+                      step="0.1"
+                      placeholder="e.g., 111.5"
+                      value={longitudeFrom}
+                      onChange={(e) => setLongitudeFrom(e.target.value)}
+                      className="text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="lon-to" className="text-xs">To</Label>
+                    <Input
+                      id="lon-to"
+                      type="number"
+                      step="0.1"
+                      placeholder="e.g., 113.5"
+                      value={longitudeTo}
+                      onChange={(e) => setLongitudeTo(e.target.value)}
+                      className="text-sm"
+                    />
+                  </div>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="range-to">To</Label>
-                <Input
-                  id="range-to"
-                  type="text"
-                  placeholder="Enter end value"
-                  value={rangeTo}
-                  onChange={(e) => setRangeTo(e.target.value)}
-                />
+
+              {/* Latitude Range */}
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium text-gray-700">Latitude Range (°N)</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="lat-from" className="text-xs">From</Label>
+                    <Input
+                      id="lat-from"
+                      type="number"
+                      step="0.1"
+                      placeholder="e.g., -24.0"
+                      value={latitudeFrom}
+                      onChange={(e) => setLatitudeFrom(e.target.value)}
+                      className="text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="lat-to" className="text-xs">To</Label>
+                    <Input
+                      id="lat-to"
+                      type="number"
+                      step="0.1"
+                      placeholder="e.g., -22.0"
+                      value={latitudeTo}
+                      onChange={(e) => setLatitudeTo(e.target.value)}
+                      className="text-sm"
+                    />
+                  </div>
+                </div>
               </div>
+
+              {/* Current Map Range Display */}
+              <div className="p-3 bg-gray-50 rounded-md">
+                <p className="text-xs text-gray-600 mb-2">Current map range:</p>
+                <div className="text-xs text-gray-500">
+                  <p>Longitude: 111.5°E to 113.5°E</p>
+                  <p>Latitude: -24.0°N to -22.0°N</p>
+                </div>
+              </div>
+
               <div className="flex justify-end space-x-2">
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   onClick={() => setIsRangeDialogOpen(false)}
                 >
                   Cancel
                 </Button>
-                <Button 
+                <Button
                   onClick={() => {
-                    // Handle range selection logic here
-                    console.log("Range selected:", { from: rangeFrom, to: rangeTo });
+                    // Handle coordinate range selection logic here
+                    console.log("Coordinate range selected:", {
+                      longitude: { from: longitudeFrom, to: longitudeTo },
+                      latitude: { from: latitudeFrom, to: latitudeTo },
+                    });
                     setIsRangeDialogOpen(false);
                   }}
                 >
-                  Apply
+                  Apply Range
                 </Button>
               </div>
             </div>
