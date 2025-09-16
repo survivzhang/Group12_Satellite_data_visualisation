@@ -64,34 +64,34 @@ const SATELLITE_MAPPING = {
 };
 
 // 辅助函数：获取参数值的占位符
-const getPlaceholderValue = (param: string, type: 'min' | 'max'): string => {
+const getPlaceholderValue = (param: string, type: "min" | "max"): string => {
   switch (param) {
-    case 'ssth':
-      return type === 'min' ? '290' : '310'; // SST in Kelvin
-    case 'sst-s3a':
-    case 'sst-s3b':
-      return type === 'min' ? '15' : '35'; // SST in Celsius
-    case 'chl-s3a':
-    case 'chl-s3b':
-      return type === 'min' ? '0.01' : '10'; // Chl in mg/m³
+    case "ssth":
+      return type === "min" ? "290" : "310"; // SST in Kelvin
+    case "sst-s3a":
+    case "sst-s3b":
+      return type === "min" ? "15" : "35"; // SST in Celsius
+    case "chl-s3a":
+    case "chl-s3b":
+      return type === "min" ? "0.01" : "10"; // Chl in mg/m³
     default:
-      return type === 'min' ? '0' : '100';
+      return type === "min" ? "0" : "100";
   }
 };
 
 // 辅助函数：获取参数的典型范围
 const getTypicalRange = (param: string): string => {
   switch (param) {
-    case 'ssth':
-      return '290-310 K (Sea Surface Temperature)';
-    case 'sst-s3a':
-    case 'sst-s3b':
-      return '15-35°C (Sea Surface Temperature)';
-    case 'chl-s3a':
-    case 'chl-s3b':
-      return '0.01-10 mg/m³ (Chlorophyll-a)';
+    case "ssth":
+      return "290-310 K (Sea Surface Temperature)";
+    case "sst-s3a":
+    case "sst-s3b":
+      return "15-35°C (Sea Surface Temperature)";
+    case "chl-s3a":
+    case "chl-s3b":
+      return "0.01-10 mg/m³ (Chlorophyll-a)";
     default:
-      return 'Check parameter documentation';
+      return "Check parameter documentation";
   }
 };
 
@@ -381,24 +381,28 @@ export function ResearchMap({
                 </h4>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label htmlFor="param-min" className="text-xs">Minimum</Label>
+                    <Label htmlFor="param-min" className="text-xs">
+                      Minimum
+                    </Label>
                     <Input
                       id="param-min"
                       type="number"
                       step="0.01"
-                      placeholder={getPlaceholderValue(parameter, 'min')}
+                      placeholder={getPlaceholderValue(parameter, "min")}
                       value={parameterMin}
                       onChange={(e) => setParameterMin(e.target.value)}
                       className="text-sm"
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label htmlFor="param-max" className="text-xs">Maximum</Label>
+                    <Label htmlFor="param-max" className="text-xs">
+                      Maximum
+                    </Label>
                     <Input
                       id="param-max"
                       type="number"
                       step="0.01"
-                      placeholder={getPlaceholderValue(parameter, 'max')}
+                      placeholder={getPlaceholderValue(parameter, "max")}
                       value={parameterMax}
                       onChange={(e) => setParameterMax(e.target.value)}
                       className="text-sm"
@@ -409,7 +413,9 @@ export function ResearchMap({
 
               {/* Current Parameter Range Display */}
               <div className="p-3 bg-gray-50 rounded-md">
-                <p className="text-xs text-gray-600 mb-2">Typical range for {currentParam?.name}:</p>
+                <p className="text-xs text-gray-600 mb-2">
+                  Typical range for {currentParam?.name}:
+                </p>
                 <div className="text-xs text-gray-500">
                   <p>{getTypicalRange(parameter)}</p>
                 </div>
