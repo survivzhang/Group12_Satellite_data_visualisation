@@ -301,7 +301,11 @@ class HimawariAPI(BaseSatelliteAPI):
                 timelims=(request.start_time, request.end_time),
                 lonlims=(request.west_lon, request.east_lon),
                 latlims=(request.south_lat, request.north_lat),
-                tstep=request.time_step_hours * 3600
+                tstep=request.time_step_hours * 3600,
+                    temp_range=(
+                        request.temp_min, request.temp_max
+                    ) if request.temp_min is not None and request.temp_max is not None else None,
+                    units=(request.units or "K")
             )
             
             # Mark as completed
