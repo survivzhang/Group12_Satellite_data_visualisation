@@ -4,7 +4,11 @@ import { useState, useEffect, useMemo } from "react";
 import { Parameter, TimeRange } from "@/types/research";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { MapPin, Layers, Zap, Image as ImageIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { MapPin, Layers, Zap, Image as ImageIcon, Settings } from "lucide-react";
 import { useDataStore } from "@/hooks/useDataStore";
 
 interface ResearchMapProps {
@@ -54,6 +58,9 @@ export function ResearchMap({
   isFullscreen,
   getParameterFiles,
 }: ResearchMapProps): JSX.Element {
+  const [rangeFrom, setRangeFrom] = useState<string>("");
+  const [rangeTo, setRangeTo] = useState<string>("");
+  const [isRangeDialogOpen, setIsRangeDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState(false);
@@ -274,33 +281,91 @@ export function ResearchMap({
       )}
 
       {/* Parameter info overlay */}
-      <div className="absolute top-4 left-4 flex flex-col gap-2">
-        <Badge className="bg-white/20 backdrop-blur text-white border-white/30">
+      <div className="absolute top-4 left-4 flex flex-col gap-2 max-w-xs">
+        <Badge className="bg-white/20 backdrop-blur text-white border-white/30 whitespace-nowrap">
           <div className="flex items-center gap-1">
             {currentParam?.icon}
-            {currentParam?.name}
+            <span className="truncate">{currentParam?.name}</span>
           </div>
         </Badge>
-        <Badge className="bg-white/20 backdrop-blur text-white border-white/30">
+        <Badge className="bg-white/20 backdrop-blur text-white border-white/30 whitespace-nowrap">
           {imageUrl && satelliteMapping ? (
             <>
               <ImageIcon className="h-3 w-3 mr-1" />
-              {satelliteMapping.satellite.toUpperCase()} Image
+              <span className="truncate">{satelliteMapping.satellite.toUpperCase()} Image</span>
             </>
           ) : (
             <>
               <MapPin className="h-3 w-3 mr-1" />
-              {satelliteMapping ? "No data available" : "Coming soon"}
+              <span className="truncate">{satelliteMapping ? "No data available" : "Coming soon"}</span>
             </>
           )}
         </Badge>
         {imageUrl && satelliteMapping && (
-          <Badge className="bg-white/20 backdrop-blur text-white border-white/30">
-            <div className="text-xs">
+          <Badge className="bg-white/20 backdrop-blur text-white border-white/30 whitespace-nowrap">
+            <div className="text-xs truncate">
               {timeRange.start.toLocaleString()}
             </div>
           </Badge>
         )}
+        
+        {/* Range Selector Button */}
+        <Dialog open={isRangeDialogOpen} onOpenChange={setIsRangeDialogOpen}>
+          <DialogTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 w-fit"
+            >
+              <Settings className="h-3 w-3 mr-1" />
+              Range
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Select Data Range</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="range-from">From</Label>
+                <Input
+                  id="range-from"
+                  type="text"
+                  placeholder="Enter start value"
+                  value={rangeFrom}
+                  onChange={(e) => setRangeFrom(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="range-to">To</Label>
+                <Input
+                  id="range-to"
+                  type="text"
+                  placeholder="Enter end value"
+                  value={rangeTo}
+                  onChange={(e) => setRangeTo(e.target.value)}
+                />
+              </div>
+              <div className="flex justify-end space-x-2">
+                <Button 
+                  variant="outline" 
+                  onClick={() => setIsRangeDialogOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={() => {
+                    // Handle range selection logic here
+                    console.log("Range selected:", { from: rangeFrom, to: rangeTo });
+                    setIsRangeDialogOpen(false);
+                  }}
+                >
+                  Apply
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Live indicator */}
