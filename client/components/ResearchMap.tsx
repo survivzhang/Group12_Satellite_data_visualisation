@@ -406,18 +406,7 @@ export function ResearchMap({
       if (targetFile) {
         const pngUrl = `http://localhost:8000${targetFile.url}`;
 
-        // 避免重复加载相同的图片
-        if (imageUrl === pngUrl) {
-          return;
-        }
-
-        setIsLoading(true);
-        setImageError(false);
-
-        console.log(`Loading ${parameter} image:`, targetFile.filename);
-        console.log(`Image URL: ${pngUrl}`);
-
-        // 获取对应的NC文件名来获取数据统计信息
+        // 获取对应的NC文件名来获取数据统计信息（移到条件判断之前）
         let ncFilename;
         if (parameter === "ssth") {
           ncFilename = targetFile.filename.replace(".png", ".nc");
@@ -438,6 +427,17 @@ export function ResearchMap({
           `Fetching stats for ${parameter} using NC file: ${ncFilename} at time: ${targetTime}`
         );
         fetchDataStats(ncFilename, targetTime);
+
+        // 避免重复加载相同的图片
+        if (imageUrl === pngUrl) {
+          return;
+        }
+
+        setIsLoading(true);
+        setImageError(false);
+
+        console.log(`Loading ${parameter} image:`, targetFile.filename);
+        console.log(`Image URL: ${pngUrl}`);
 
         // Check if image exists
         const img = new Image();

@@ -663,3 +663,63 @@ class Sentinel3API(BaseSatelliteAPI):
             },
             "note": "Use /docs for interactive API documentation"
         }
+    
+    def find_first_valid_timepoint(self, data_var):
+        """Find the first time point with valid data for Sentinel-3"""
+        import numpy as np
+        
+        if len(data_var.shape) <= 2:
+            return data_var.values
+        
+        for i in range(data_var.shape[0]):
+            time_data = data_var.values[i]
+            valid_data = time_data[~np.isnan(time_data)]
+            if len(valid_data) > 0:
+                return time_data
+        
+        # If no valid data found, return first time point
+        return data_var.values[0]
+    
+    def get_sentinel3_data(self, data_var, target_time=None):
+        """Get data for Sentinel-3 with proper time point selection logic"""
+        import numpy as np
+        
+        # Handle multi-time data (like Sentinel-3)
+        if len(data_var.shape) > 2:  # Multi-time data
+            if target_time:
+                # Try to find the closest time point to target_time
+                from datetime import datetime
+                try:
+                    target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
+                    # Get time coordinates from the dataset
+                    # Note: This assumes the dataset has a 'time' coordinate
+                    # We need to get this from the parent function
+                    return self._find_closest_time_data(data_var, target_dt)
+                except Exception as e:
+                    print(f"Error parsing target_time {target_time}: {e}")
+                    # Fallback to first valid time point
+                    return self.find_first_valid_timepoint(data_var)
+            else:
+                # No target_time specified, use first valid time point
+                return self.find_first_valid_timepoint(data_var)
+        else:
+            # Single time data
+            return data_var.values
+    
+    def _find_closest_time_data(self, data_var, target_dt):
+        """Find the closest time point data for Sentinel-3"""
+        import numpy as np
+        
+        # This is a simplified version - in practice, we'd need access to the time coordinates
+        # For now, we'll use the first time point as fallback
+        # TODO: Implement proper time matching when we have access to time coordinates
+        data = data_var.values[0]
+        
+        # Check if the first time point has valid data
+        valid_data = data[~np.isnan(data)]
+        if len(valid_data) == 0:
+            # If first time point has no valid data, try other time points
+            print(f"First time point has no valid data, trying other time points...")
+            data = self.find_first_valid_timepoint(data_var)
+        
+        return data

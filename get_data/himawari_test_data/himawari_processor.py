@@ -191,8 +191,8 @@ class HimawariDataProcessor:
         dt: np.datetime64,
         lonlims: Tuple[float, float],
         latlims: Tuple[float, float],
-        temp_range: Optional[Tuple[float, float]] = None,   # 新增
-        units: str = "K",                                    # 新增
+        temp_range: Optional[Tuple[float, float]] = None,   # Added
+        units: str = "K",                                    # Added
     ):
         dt_pd = pd.Timestamp(dt)
         time_str = dt_pd.strftime("%Y%m%d%H%M%S")
@@ -221,7 +221,7 @@ class HimawariDataProcessor:
         try:
             self._process_netcdf_file(
                 file_on_disk, output_path, lonlims, latlims, time_str,
-                temp_range=temp_range, units=units        # 传下去
+                temp_range=temp_range, units=units        # Pass down
             )
         finally:
             if file_on_disk.exists():
@@ -239,8 +239,8 @@ class HimawariDataProcessor:
         lonlims: Tuple[float, float],
         latlims: Tuple[float, float],
         time_str: str,
-        temp_range: Optional[Tuple[float, float]] = None,   # 新增
-        units: str = "K",                                    # 新增
+        temp_range: Optional[Tuple[float, float]] = None,   # Added
+        units: str = "K",                                    # Added
     ):
         with xr.open_dataset(file_path, engine="netcdf4") as ds:
             lon_name = self._pick_coord_name(ds, ["lon", "longitude"])
@@ -265,7 +265,7 @@ class HimawariDataProcessor:
             ds_cropped.to_netcdf(output_path)
             print(f"Saved cropped dataset to {output_path}")
 
-            # 将温度范围传给绘图函数
+            # Pass temperature range to plotting function
             self._create_visualization(
                 ds_cropped, sst_name, time_name, time_str,
                 temp_range=temp_range, units=units
@@ -279,23 +279,23 @@ class HimawariDataProcessor:
         time_name: str,
         time_str: str,
         temp_range: Optional[Tuple[float, float]] = None,   # e.g., (298, 303) in K
-        units: str = "K"                                    # "K" 或 "C"
+        units: str = "K"                                    # "K" or "C"
     ):
         """Create PNG visualization of SST with lon/lat axes and a value mask."""
         sst = ds[sst_name]
 
-    # 取第一帧（如果有时间维）
+    # Take first frame (if time dimension exists)
         if time_name in sst.dims and sst.sizes.get(time_name, 0) >= 1:
             sst0 = sst.isel({time_name: 0})
         else:
             sst0 = sst
 
-    # 无有效数据直接跳过
+    # Skip if no valid data
         if not np.isfinite(sst0.values).any():
             print(f"SST all-NaN for {time_str}, skipping PNG.")
             return
 
-    # 经纬度名与数据
+    # Longitude and latitude names and data
         lon_name = self._pick_coord_name(ds, ["lon", "longitude"])
         lat_name = self._pick_coord_name(ds, ["lat", "latitude"])
         lon = ds[lon_name].values
@@ -305,33 +305,33 @@ class HimawariDataProcessor:
         south, north = float(np.nanmin(lat)), float(np.nanmax(lat))
         extent = [west, east, south, north]
 
-    # 处理温度范围（默认用数据 min/max；若给了范围则按范围并把超出设为白色）
-        data = np.array(sst0.values, dtype=float)  # 复制成 ndarray
+    # Handle temperature range (default use data min/max; if range given, use range and set out-of-range to white)
+        data = np.array(sst0.values, dtype=float)  # Copy to ndarray
         if temp_range is None:
             vmin = float(np.nanmin(data))
             vmax = float(np.nanmax(data))
         else:
             tmin, tmax = temp_range
-        # 如果用户用 °C，转换为 K（假设数据是 K）
+        # If user uses °C, convert to K (assuming data is in K)
             if units.upper() == "C":
                 tmin = tmin + 273.15
                 tmax = tmax + 273.15
             vmin, vmax = float(tmin), float(tmax)
-        # 将超出范围的值置为 NaN（显示为白色）
+        # Set out-of-range values to NaN (display as white)
             mask = ~np.isnan(data) & ((data < vmin) | (data > vmax))
             data = data.copy()
             data[mask] = np.nan
 
-    # colormap：把 NaN / under / over 都设为白色兜底
+    # Colormap: set NaN / under / over all to white as fallback
         cmap = plt.get_cmap("turbo").copy()
         cmap.set_bad("white")
         cmap.set_under("white")
         cmap.set_over("white")
 
-    # 颜色归一化：不裁剪（超出范围我们已置 NaN）
+    # Color normalization: no clipping (out-of-range values already set to NaN)
         norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax, clip=False)
 
-    # 绘图
+    # Plot
         fig, ax = plt.subplots(figsize=(10, 8))
         im = ax.imshow(
             data,
@@ -1077,6 +1077,6 @@ processor.process_time_series(
     lonlims=(111, 114),
     latlims=(-25, -20),
     tstep=3600,
-    temp_range=(28.0, 31.0),  # ← 在这里调
-    units="C"                 # "C" 或 "K"
+    temp_range=(28.0, 31.0),  # ← Adjust here
+    units="C"                 # "C" or "K"
 )

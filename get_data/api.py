@@ -117,6 +117,15 @@ def find_first_valid_timepoint(data_var):
     # If no valid data found, return first time point
     return data_var.values[0]
 
+def get_parameter_units(parameter: str) -> str:
+    """Get the correct units for a parameter"""
+    if parameter == "sst":
+        return "K"
+    elif parameter == "chl":
+        return "mg/m³"
+    else:
+        return "unknown"
+
 def setup_data_directories():
     """Ensure all necessary data directories exist with unified structure"""
     from pathlib import Path
@@ -664,24 +673,53 @@ async def get_data_stats(satellite: str, parameter: str, filename: str, target_t
             
             # Handle multi-time data (like Sentinel-3)
             if len(data_var.shape) > 2:  # Multi-time data
-                if target_time:
-                    # Find closest time to target_time
-                    from datetime import datetime
-                    try:
-                        target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
-                        time_coords = ds['time'].values
-                        time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
-                        closest_time_idx = np.argmin(time_diffs)
-                        data = data_var.values[closest_time_idx]
-                    except Exception as e:
-                        # Fallback to first valid time point if parsing fails
+                # Special handling for Sentinel-3 to match original PNG logic
+                if satellite in ['sentinel3a', 'sentinel3b']:
+                    # For Sentinel-3, try to find the best time point
+                    if target_time:
+                        from datetime import datetime
+                        try:
+                            target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
+                            time_coords = ds['time'].values
+                            time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
+                            closest_time_idx = np.argmin(time_diffs)
+                            data = data_var.values[closest_time_idx]
+                            
+                            # Check if the closest time point has valid data
+                            valid_data = data[~np.isnan(data)]
+                            if len(valid_data) == 0:
+                                # If closest time point has no valid data, use first valid time point
+                                print(f"Closest time point has no valid data, using first valid time point...")
+                                data = find_first_valid_timepoint(data_var)
+                        except Exception as e:
+                            # Fallback to first valid time point if parsing fails
+                            data = find_first_valid_timepoint(data_var)
+                    else:
+                        # No target_time specified, use first valid time point
                         data = find_first_valid_timepoint(data_var)
                 else:
-                    # Find first time point with valid data
-                    data = find_first_valid_timepoint(data_var)
+                    # For other satellites, use original target_time logic
+                    if target_time:
+                        from datetime import datetime
+                        try:
+                            target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
+                            time_coords = ds['time'].values
+                            time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
+                            closest_time_idx = np.argmin(time_diffs)
+                            data = data_var.values[closest_time_idx]
+                            
+                            # Check if the closest time point has valid data
+                            valid_data = data[~np.isnan(data)]
+                            if len(valid_data) == 0:
+                                # If closest time point has no valid data, try other time points
+                                print(f"Closest time point has no valid data, trying other time points...")
+                                data = find_first_valid_timepoint(data_var)
+                        except Exception as e:
+                            data = find_first_valid_timepoint(data_var) # Fallback to first valid time point
+                    else:
+                        data = find_first_valid_timepoint(data_var) # Default to first valid time point
             else:
-                # Single time data (like Himawari)
-                data = data_var.values
+                data = data_var.values # Single time data
             
             # Get valid data (exclude NaN values)
             valid_data = data[~np.isnan(data)]
@@ -696,7 +734,7 @@ async def get_data_stats(satellite: str, parameter: str, filename: str, target_t
                 "mean": float(np.mean(valid_data)),
                 "std": float(np.std(valid_data)),
                 "count": int(len(valid_data)),
-                "units": data_var.attrs.get("units", "unknown"),
+                "units": get_parameter_units(parameter),
                 "parameter": parameter,
                 "satellite": satellite,
                 "filename": filename
@@ -761,24 +799,53 @@ async def get_filtered_image(
             
             # Handle multi-time data (like Sentinel-3)
             if len(data_var.shape) > 2:  # Multi-time data
-                if target_time:
-                    # Find closest time to target_time
-                    from datetime import datetime
-                    try:
-                        target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
-                        time_coords = ds['time'].values
-                        time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
-                        closest_time_idx = np.argmin(time_diffs)
-                        data = data_var.values[closest_time_idx]
-                    except Exception as e:
-                        # Fallback to first valid time point if parsing fails
+                # Special handling for Sentinel-3 to match original PNG logic
+                if satellite in ['sentinel3a', 'sentinel3b']:
+                    # For Sentinel-3, try to find the best time point
+                    if target_time:
+                        from datetime import datetime
+                        try:
+                            target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
+                            time_coords = ds['time'].values
+                            time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
+                            closest_time_idx = np.argmin(time_diffs)
+                            data = data_var.values[closest_time_idx]
+                            
+                            # Check if the closest time point has valid data
+                            valid_data = data[~np.isnan(data)]
+                            if len(valid_data) == 0:
+                                # If closest time point has no valid data, use first valid time point
+                                print(f"Closest time point has no valid data, using first valid time point...")
+                                data = find_first_valid_timepoint(data_var)
+                        except Exception as e:
+                            # Fallback to first valid time point if parsing fails
+                            data = find_first_valid_timepoint(data_var)
+                    else:
+                        # No target_time specified, use first valid time point
                         data = find_first_valid_timepoint(data_var)
                 else:
-                    # Find first time point with valid data
-                    data = find_first_valid_timepoint(data_var)
+                    # For other satellites, use original target_time logic
+                    if target_time:
+                        from datetime import datetime
+                        try:
+                            target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
+                            time_coords = ds['time'].values
+                            time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
+                            closest_time_idx = np.argmin(time_diffs)
+                            data = data_var.values[closest_time_idx]
+                            
+                            # Check if the closest time point has valid data
+                            valid_data = data[~np.isnan(data)]
+                            if len(valid_data) == 0:
+                                # If closest time point has no valid data, try other time points
+                                print(f"Closest time point has no valid data, trying other time points...")
+                                data = find_first_valid_timepoint(data_var)
+                        except Exception as e:
+                            data = find_first_valid_timepoint(data_var) # Fallback to first valid time point
+                    else:
+                        data = find_first_valid_timepoint(data_var) # Default to first valid time point
             else:
-                # Single time data (like Himawari)
-                data = data_var.values
+                data = data_var.values # Single time data
             
             # Get coordinates
             lon_name = None
@@ -842,7 +909,7 @@ async def get_filtered_image(
             
             # Add colorbar
             cbar = plt.colorbar(im, ax=ax, shrink=0.8)
-            cbar.set_label(f'{parameter.upper()} ({data_var.attrs.get("units", "unknown")})')
+            cbar.set_label(f'{parameter.upper()} ({get_parameter_units(parameter)})')
             
             # Set title
             ax.set_title(f'{satellite.upper()} {parameter.upper()} - {filename}')
