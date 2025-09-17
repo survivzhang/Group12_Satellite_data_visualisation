@@ -29,6 +29,28 @@ from satellites.shared.utils import get_system_info, get_file_count
 class Sentinel3API(BaseSatelliteAPI):
     """Sentinel-3 satellite API implementation"""
     
+    # Parameter configuration for Sentinel-3
+    PARAMETER_CONFIGS = {
+        "sst": {
+            "var_names": [
+                "copernicus_sentinel3a_slstr_l2p_sst_fullres",
+                "copernicus_sentinel3b_slstr_l2p_sst_fullres"
+            ],
+            "unit": "K",
+            "colormap": "turbo",
+            "description": "Sea Surface Temperature"
+        },
+        "chl": {
+            "var_names": [
+                "copernicus_sentinel3a_olci_l2_chl_fullres",
+                "copernicus_sentinel3b_olci_l2_chl_fullres"
+            ],
+            "unit": "mg/m³",
+            "colormap": "viridis",
+            "description": "Chlorophyll-a Concentration"
+        }
+    }
+    
     def __init__(self):
         # Use unified directory structure: data/
         unified_base_dir = Path(__file__).parent.parent.parent / "data"
@@ -668,33 +690,82 @@ class Sentinel3API(BaseSatelliteAPI):
         """Find the first time point with valid data for Sentinel-3"""
         import numpy as np
         
-        if len(data_var.shape) <= 2:
-            return data_var.values
+        # Handle both xarray and numpy array inputs
+        if hasattr(data_var, 'values'):
+            data_array = data_var.values
+        else:
+            data_array = data_var
+            
+        if len(data_array.shape) <= 2:
+            return data_array
         
-        for i in range(data_var.shape[0]):
-            time_data = data_var.values[i]
+        for i in range(data_array.shape[0]):
+            time_data = data_array[i]
             valid_data = time_data[~np.isnan(time_data)]
             if len(valid_data) > 0:
                 return time_data
         
         # If no valid data found, return first time point
-        return data_var.values[0]
+        return data_array[0]
     
-    def get_sentinel3_data(self, data_var, target_time=None):
+    def get_parameter_config(self, parameter: str) -> dict:
+        """Get parameter configuration for Sentinel-3"""
+        return self.PARAMETER_CONFIGS.get(parameter, {})
+    
+    def get_parameter_var_names(self, parameter: str) -> list:
+        """Get variable names for a specific parameter"""
+        config = self.get_parameter_config(parameter)
+        return config.get("var_names", [])
+    
+    def get_parameter_unit(self, parameter: str) -> str:
+        """Get unit for a specific parameter"""
+        config = self.get_parameter_config(parameter)
+        return config.get("unit", "unknown")
+    
+    def get_parameter_colormap(self, parameter: str) -> str:
+        """Get colormap for a specific parameter"""
+        config = self.get_parameter_config(parameter)
+        return config.get("colormap", "viridis")
+    
+    def find_data_variable(self, ds, parameter: str):
+        """Find the data variable for a specific parameter in the dataset"""
+        var_names = self.get_parameter_var_names(parameter)
+        
+        for var_name in var_names:
+            if var_name in ds.data_vars:
+                return ds[var_name]
+        
+        return None
+
+    def get_sentinel3_data(self, data_var, target_time=None, time_coords=None):
         """Get data for Sentinel-3 with proper time point selection logic"""
         import numpy as np
         
+        # Handle both xarray and numpy array inputs
+        if hasattr(data_var, 'values'):
+            data_array = data_var.values
+        else:
+            data_array = data_var
+        
         # Handle multi-time data (like Sentinel-3)
-        if len(data_var.shape) > 2:  # Multi-time data
-            if target_time:
+        if len(data_array.shape) > 2:  # Multi-time data
+            if target_time and time_coords is not None:
                 # Try to find the closest time point to target_time
                 from datetime import datetime
                 try:
                     target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
-                    # Get time coordinates from the dataset
-                    # Note: This assumes the dataset has a 'time' coordinate
-                    # We need to get this from the parent function
-                    return self._find_closest_time_data(data_var, target_dt)
+                    time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
+                    closest_time_idx = np.argmin(time_diffs)
+                    data = data_array[closest_time_idx]
+                    
+                    # Check if the closest time point has valid data
+                    valid_data = data[~np.isnan(data)]
+                    if len(valid_data) == 0:
+                        # If closest time point has no valid data, use first valid time point
+                        print(f"Closest time point has no valid data, using first valid time point...")
+                        return self.find_first_valid_timepoint(data_var)
+                    else:
+                        return data
                 except Exception as e:
                     print(f"Error parsing target_time {target_time}: {e}")
                     # Fallback to first valid time point
@@ -704,7 +775,7 @@ class Sentinel3API(BaseSatelliteAPI):
                 return self.find_first_valid_timepoint(data_var)
         else:
             # Single time data
-            return data_var.values
+            return data_array
     
     def _find_closest_time_data(self, data_var, target_dt):
         """Find the closest time point data for Sentinel-3"""

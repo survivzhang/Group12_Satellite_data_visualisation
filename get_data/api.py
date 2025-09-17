@@ -117,14 +117,20 @@ def find_first_valid_timepoint(data_var):
     # If no valid data found, return first time point
     return data_var.values[0]
 
-def get_parameter_units(parameter: str) -> str:
+def get_parameter_units(parameter: str, satellite: str = None) -> str:
     """Get the correct units for a parameter"""
-    if parameter == "sst":
-        return "K"
-    elif parameter == "chl":
-        return "mg/m³"
+    if satellite in ['sentinel3a', 'sentinel3b']:
+        # Use Sentinel-3 specific units
+        sentinel3_api = get_sentinel3_api()
+        return sentinel3_api.get_parameter_unit(parameter)
     else:
-        return "unknown"
+        # Use general units for other satellites
+        if parameter == "sst":
+            return "K"
+        elif parameter == "chl":
+            return "mg/m³"
+        else:
+            return "unknown"
 
 def setup_data_directories():
     """Ensure all necessary data directories exist with unified structure"""
@@ -663,42 +669,29 @@ async def get_data_stats(satellite: str, parameter: str, filename: str, target_t
         with xr.open_dataset(file_path, engine="netcdf4") as ds:
             # Find the data variable (SST, chlorophyll, etc.)
             data_var = None
-            for var_name in ["sea_surface_temperature", "copernicus_sentinel3a_slstr_l2p_sst_fullres", "copernicus_sentinel3b_slstr_l2p_sst_fullres", "copernicus_sentinel3a_olci_l2_chl_fullres", "copernicus_sentinel3b_olci_l2_chl_fullres"]:
-                if var_name in ds.data_vars:
-                    data_var = ds[var_name]
-                    break
+            if satellite in ['sentinel3a', 'sentinel3b']:
+                # Use Sentinel-3 specific variable lookup
+                sentinel3_api = get_sentinel3_api()
+                data_var = sentinel3_api.find_data_variable(ds, parameter)
+            else:
+                # Use general variable lookup for other satellites
+                for var_name in ["sea_surface_temperature"]:
+                    if var_name in ds.data_vars:
+                        data_var = ds[var_name]
+                        break
             
             if data_var is None:
                 raise HTTPException(status_code=400, detail="No data variable found in file")
             
-            # Handle multi-time data (like Sentinel-3)
+            # Handle multi-time data using satellite-specific modules
             if len(data_var.shape) > 2:  # Multi-time data
-                # Special handling for Sentinel-3 to match original PNG logic
                 if satellite in ['sentinel3a', 'sentinel3b']:
-                    # For Sentinel-3, try to find the best time point
-                    if target_time:
-                        from datetime import datetime
-                        try:
-                            target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
-                            time_coords = ds['time'].values
-                            time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
-                            closest_time_idx = np.argmin(time_diffs)
-                            data = data_var.values[closest_time_idx]
-                            
-                            # Check if the closest time point has valid data
-                            valid_data = data[~np.isnan(data)]
-                            if len(valid_data) == 0:
-                                # If closest time point has no valid data, use first valid time point
-                                print(f"Closest time point has no valid data, using first valid time point...")
-                                data = find_first_valid_timepoint(data_var)
-                        except Exception as e:
-                            # Fallback to first valid time point if parsing fails
-                            data = find_first_valid_timepoint(data_var)
-                    else:
-                        # No target_time specified, use first valid time point
-                        data = find_first_valid_timepoint(data_var)
+                    # Use Sentinel-3 specific data processing
+                    sentinel3_api = get_sentinel3_api()
+                    time_coords = ds['time'].values
+                    data = sentinel3_api.get_sentinel3_data(data_var, target_time, time_coords)
                 else:
-                    # For other satellites, use original target_time logic
+                    # For other satellites, use general target_time logic
                     if target_time:
                         from datetime import datetime
                         try:
@@ -734,7 +727,7 @@ async def get_data_stats(satellite: str, parameter: str, filename: str, target_t
                 "mean": float(np.mean(valid_data)),
                 "std": float(np.std(valid_data)),
                 "count": int(len(valid_data)),
-                "units": get_parameter_units(parameter),
+                "units": get_parameter_units(parameter, satellite),
                 "parameter": parameter,
                 "satellite": satellite,
                 "filename": filename
@@ -789,42 +782,29 @@ async def get_filtered_image(
         with xr.open_dataset(file_path, engine="netcdf4") as ds:
             # Find the data variable
             data_var = None
-            for var_name in ["sea_surface_temperature", "copernicus_sentinel3a_slstr_l2p_sst_fullres", "copernicus_sentinel3b_slstr_l2p_sst_fullres", "copernicus_sentinel3a_olci_l2_chl_fullres", "copernicus_sentinel3b_olci_l2_chl_fullres"]:
-                if var_name in ds.data_vars:
-                    data_var = ds[var_name]
-                    break
+            if satellite in ['sentinel3a', 'sentinel3b']:
+                # Use Sentinel-3 specific variable lookup
+                sentinel3_api = get_sentinel3_api()
+                data_var = sentinel3_api.find_data_variable(ds, parameter)
+            else:
+                # Use general variable lookup for other satellites
+                for var_name in ["sea_surface_temperature"]:
+                    if var_name in ds.data_vars:
+                        data_var = ds[var_name]
+                        break
             
             if data_var is None:
                 raise HTTPException(status_code=400, detail="No data variable found in file")
             
-            # Handle multi-time data (like Sentinel-3)
+            # Handle multi-time data using satellite-specific modules
             if len(data_var.shape) > 2:  # Multi-time data
-                # Special handling for Sentinel-3 to match original PNG logic
                 if satellite in ['sentinel3a', 'sentinel3b']:
-                    # For Sentinel-3, try to find the best time point
-                    if target_time:
-                        from datetime import datetime
-                        try:
-                            target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
-                            time_coords = ds['time'].values
-                            time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
-                            closest_time_idx = np.argmin(time_diffs)
-                            data = data_var.values[closest_time_idx]
-                            
-                            # Check if the closest time point has valid data
-                            valid_data = data[~np.isnan(data)]
-                            if len(valid_data) == 0:
-                                # If closest time point has no valid data, use first valid time point
-                                print(f"Closest time point has no valid data, using first valid time point...")
-                                data = find_first_valid_timepoint(data_var)
-                        except Exception as e:
-                            # Fallback to first valid time point if parsing fails
-                            data = find_first_valid_timepoint(data_var)
-                    else:
-                        # No target_time specified, use first valid time point
-                        data = find_first_valid_timepoint(data_var)
+                    # Use Sentinel-3 specific data processing
+                    sentinel3_api = get_sentinel3_api()
+                    time_coords = ds['time'].values
+                    data = sentinel3_api.get_sentinel3_data(data_var, target_time, time_coords)
                 else:
-                    # For other satellites, use original target_time logic
+                    # For other satellites, use general target_time logic
                     if target_time:
                         from datetime import datetime
                         try:
@@ -890,13 +870,20 @@ async def get_filtered_image(
             # Create the plot
             fig, ax = plt.subplots(figsize=(10, 8), subplot_kw={'projection': None})
             
-            # Use appropriate colormap (same as original images)
-            if parameter == "sst":
-                cmap = plt.cm.turbo  # Use turbo for SST (same as original)
-            elif parameter == "chl":
-                cmap = plt.cm.viridis  # Use viridis for chlorophyll
+            # Use appropriate colormap based on satellite and parameter
+            if satellite in ['sentinel3a', 'sentinel3b']:
+                # Use Sentinel-3 specific colormap
+                sentinel3_api = get_sentinel3_api()
+                colormap_name = sentinel3_api.get_parameter_colormap(parameter)
+                cmap = getattr(plt.cm, colormap_name, plt.cm.viridis)
             else:
-                cmap = plt.cm.viridis
+                # Use general colormap for other satellites
+                if parameter == "sst":
+                    cmap = plt.cm.turbo  # Use turbo for SST (same as original)
+                elif parameter == "chl":
+                    cmap = plt.cm.viridis  # Use viridis for chlorophyll
+                else:
+                    cmap = plt.cm.viridis
             
             # Create meshgrid for plotting
             if lons.ndim == 1 and lats.ndim == 1:
@@ -909,7 +896,7 @@ async def get_filtered_image(
             
             # Add colorbar
             cbar = plt.colorbar(im, ax=ax, shrink=0.8)
-            cbar.set_label(f'{parameter.upper()} ({get_parameter_units(parameter)})')
+            cbar.set_label(f'{parameter.upper()} ({get_parameter_units(parameter, satellite)})')
             
             # Set title
             ax.set_title(f'{satellite.upper()} {parameter.upper()} - {filename}')
