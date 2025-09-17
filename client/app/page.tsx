@@ -39,6 +39,16 @@ export default function NingalooResearchApp() {
   const [fullscreenMap, setFullscreenMap] = useState<string | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
 
+  // Global range state for all maps
+  const [globalRange, setGlobalRange] = useState<{
+    [parameter: string]: {
+      min: string;
+      max: string;
+      appliedMin: string;
+      appliedMax: string;
+    };
+  }>({});
+
   const {
     lastUpdate,
     isUpdating,
@@ -194,6 +204,56 @@ export default function NingalooResearchApp() {
     setFullscreenMap((cur) => (cur === mapId ? null : mapId));
   };
 
+  // Range management functions
+  const updateRange = (parameter: string, min: string, max: string) => {
+    setGlobalRange((prev) => ({
+      ...prev,
+      [parameter]: {
+        ...prev[parameter],
+        min,
+        max,
+      },
+    }));
+  };
+
+  const applyRange = (
+    parameter: string,
+    appliedMin: string,
+    appliedMax: string
+  ) => {
+    setGlobalRange((prev) => ({
+      ...prev,
+      [parameter]: {
+        ...prev[parameter],
+        appliedMin,
+        appliedMax,
+      },
+    }));
+  };
+
+  const resetRange = (parameter: string) => {
+    setGlobalRange((prev) => ({
+      ...prev,
+      [parameter]: {
+        min: "",
+        max: "",
+        appliedMin: "",
+        appliedMax: "",
+      },
+    }));
+  };
+
+  const getRangeForParameter = (parameter: string) => {
+    const range = globalRange[parameter] || {
+      min: "",
+      max: "",
+      appliedMin: "",
+      appliedMax: "",
+    };
+    console.log(`Getting range for ${parameter}:`, range);
+    return range;
+  };
+
   // ===== Layout helpers =====
   const gridClass = useMemo(() => {
     const n = mapInstances.length;
@@ -259,6 +319,10 @@ export default function NingalooResearchApp() {
                       availableParameters={availableParameters}
                       isFullscreen={true}
                       getParameterFiles={getParameterFiles}
+                      range={getRangeForParameter(m.parameter)}
+                      onRangeUpdate={updateRange}
+                      onRangeApply={applyRange}
+                      onRangeReset={resetRange}
                     />
                   </div>
                 ))}
@@ -384,6 +448,10 @@ export default function NingalooResearchApp() {
                     timeRange={selectedTimeRange}
                     availableParameters={availableParameters}
                     getParameterFiles={getParameterFiles}
+                    range={getRangeForParameter(instance.parameter)}
+                    onRangeUpdate={updateRange}
+                    onRangeApply={applyRange}
+                    onRangeReset={resetRange}
                   />
                 </CardContent>
               </Card>

@@ -32,6 +32,19 @@ interface ResearchMapProps {
     paramId: string,
     fileType: "nc" | "png"
   ) => Promise<any[]>;
+  range?: {
+    min: string;
+    max: string;
+    appliedMin: string;
+    appliedMax: string;
+  };
+  onRangeUpdate?: (parameter: string, min: string, max: string) => void;
+  onRangeApply?: (
+    parameter: string,
+    appliedMin: string,
+    appliedMax: string
+  ) => void;
+  onRangeReset?: (parameter: string) => void;
 }
 
 // 卫星参数映射 - 更新为统一数据结构
@@ -101,11 +114,20 @@ export function ResearchMap({
   availableParameters,
   isFullscreen,
   getParameterFiles,
+  range,
+  onRangeUpdate,
+  onRangeApply,
+  onRangeReset,
 }: ResearchMapProps): JSX.Element {
-  const [parameterMin, setParameterMin] = useState<string>("");
-  const [parameterMax, setParameterMax] = useState<string>("");
-  const [appliedMin, setAppliedMin] = useState<string>("");
-  const [appliedMax, setAppliedMax] = useState<string>("");
+  // Use props for range state, fallback to local state for backward compatibility
+  const parameterMin = range?.min || "";
+  const parameterMax = range?.max || "";
+  const appliedMin = range?.appliedMin || "";
+  const appliedMax = range?.appliedMax || "";
+
+  // Local state for dialog inputs (temporary values before applying)
+  const [tempMin, setTempMin] = useState<string>("");
+  const [tempMax, setTempMax] = useState<string>("");
   const [isRangeDialogOpen, setIsRangeDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -157,6 +179,52 @@ export function ResearchMap({
       return `${year}${month}${day}_${hour}${minute}${second}`;
     }
   }, [parameter, timeRange.start, satelliteMapping]);
+
+  // Sync temp values with current range when dialog opens
+  useEffect(() => {
+    if (isRangeDialogOpen) {
+      setTempMin(parameterMin);
+      setTempMax(parameterMax);
+    }
+  }, [isRangeDialogOpen, parameterMin, parameterMax]);
+
+  // Generate filtered image when range changes
+  useEffect(() => {
+    console.log(`Range effect triggered for ${parameter}:`, {
+      appliedMin,
+      appliedMax,
+      availableFiles: availableFiles.length,
+      currentTimestamp,
+    });
+
+    if (appliedMin || appliedMax) {
+      // Only generate filtered image if we have a current file and range is applied
+      if (availableFiles.length > 0 && currentTimestamp) {
+        const currentFile = availableFiles.find((f) => {
+          if (parameter === "ssth") {
+            return f.filename && f.filename.startsWith(currentTimestamp);
+          } else {
+            return f.filename.includes(currentTimestamp.substring(0, 8));
+          }
+        });
+
+        if (currentFile) {
+          const ncFilename = currentFile.filename.replace(".png", ".nc");
+          const minNum = appliedMin ? parseFloat(appliedMin) : undefined;
+          const maxNum = appliedMax ? parseFloat(appliedMax) : undefined;
+          console.log(
+            `Generating filtered image for ${parameter} with range:`,
+            { minNum, maxNum }
+          );
+          generateFilteredImage(ncFilename, minNum, maxNum);
+        }
+      }
+    } else {
+      // Clear filtered image if no range is applied
+      console.log(`Clearing filtered image for ${parameter}`);
+      setFilteredImageUrl(null);
+    }
+  }, [appliedMin, appliedMax, availableFiles, currentTimestamp, parameter]);
 
   // 获取数据统计信息的函数
   const fetchDataStats = async (filename: string) => {
@@ -542,8 +610,8 @@ export function ResearchMap({
                           ? `${dataStats.min.toFixed(3)}`
                           : getPlaceholderValue(parameter, "min")
                       }
-                      value={parameterMin}
-                      onChange={(e) => setParameterMin(e.target.value)}
+                      value={tempMin}
+                      onChange={(e) => setTempMin(e.target.value)}
                       min={dataStats ? dataStats.min : undefined}
                       max={dataStats ? dataStats.max : undefined}
                       className="text-sm"
@@ -567,8 +635,8 @@ export function ResearchMap({
                           ? `${dataStats.max.toFixed(3)}`
                           : getPlaceholderValue(parameter, "max")
                       }
-                      value={parameterMax}
-                      onChange={(e) => setParameterMax(e.target.value)}
+                      value={tempMax}
+                      onChange={(e) => setTempMax(e.target.value)}
                       min={dataStats ? dataStats.min : undefined}
                       max={dataStats ? dataStats.max : undefined}
                       className="text-sm"
@@ -619,10 +687,11 @@ export function ResearchMap({
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        setAppliedMin("");
-                        setAppliedMax("");
-                        setParameterMin("");
-                        setParameterMax("");
+                        if (onRangeReset) {
+                          onRangeReset(parameter);
+                        }
+                        setTempMin("");
+                        setTempMax("");
                         setFilteredImageUrl(null);
                         console.log("Parameter range reset");
                       }}
@@ -642,8 +711,8 @@ export function ResearchMap({
                   <Button
                     onClick={() => {
                       // Apply the parameter range settings
-                      const minValue = parameterMin.trim();
-                      const maxValue = parameterMax.trim();
+                      const minValue = tempMin.trim();
+                      const maxValue = tempMax.trim();
 
                       // Validate range values
                       if (minValue && maxValue) {
@@ -678,9 +747,13 @@ export function ResearchMap({
                         }
                       }
 
-                      // Apply the range settings
-                      setAppliedMin(minValue);
-                      setAppliedMax(maxValue);
+                      // Update the global range state
+                      if (onRangeUpdate) {
+                        onRangeUpdate(parameter, minValue, maxValue);
+                      }
+                      if (onRangeApply) {
+                        onRangeApply(parameter, minValue, maxValue);
+                      }
 
                       console.log("Parameter range applied:", {
                         parameter: currentParam?.name,
@@ -688,28 +761,7 @@ export function ResearchMap({
                         max: maxValue,
                       });
 
-                      // Generate filtered image if we have a current file
-                      if (availableFiles.length > 0) {
-                        const currentFile = availableFiles.find((f) =>
-                          f.filename.includes(
-                            currentTimestamp?.substring(0, 8) || ""
-                          )
-                        );
-                        if (currentFile) {
-                          const ncFilename = currentFile.filename.replace(
-                            ".png",
-                            ".nc"
-                          );
-                          const minNum = minValue
-                            ? parseFloat(minValue)
-                            : undefined;
-                          const maxNum = maxValue
-                            ? parseFloat(maxValue)
-                            : undefined;
-                          generateFilteredImage(ncFilename, minNum, maxNum);
-                        }
-                      }
-
+                      // The filtered image will be generated automatically by the useEffect
                       setIsRangeDialogOpen(false);
                     }}
                   >
