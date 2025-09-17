@@ -101,6 +101,22 @@ def get_sentinel3_api():
     return _sentinel3_api_instance
 
 # Helper functions
+def find_first_valid_timepoint(data_var):
+    """Find the first time point with valid data"""
+    import numpy as np
+    
+    if len(data_var.shape) <= 2:
+        return data_var.values
+    
+    for i in range(data_var.shape[0]):
+        time_data = data_var.values[i]
+        valid_data = time_data[~np.isnan(time_data)]
+        if len(valid_data) > 0:
+            return time_data
+    
+    # If no valid data found, return first time point
+    return data_var.values[0]
+
 def setup_data_directories():
     """Ensure all necessary data directories exist with unified structure"""
     from pathlib import Path
@@ -617,7 +633,7 @@ async def download_nc_file(satellite: str, parameter: str, filename: str):
         raise HTTPException(status_code=500, detail=f"Failed to download file: {str(e)}")
 
 @app.get("/api/v1/satellites/{satellite}/{parameter}/stats/{filename}")
-async def get_data_stats(satellite: str, parameter: str, filename: str):
+async def get_data_stats(satellite: str, parameter: str, filename: str, target_time: str = None):
     """Get data statistics (min, max, mean) from a specific NC file"""
     if satellite not in SATELLITES:
         raise HTTPException(status_code=404, detail=f"Satellite '{satellite}' not found")
@@ -638,7 +654,7 @@ async def get_data_stats(satellite: str, parameter: str, filename: str):
         with xr.open_dataset(file_path, engine="netcdf4") as ds:
             # Find the data variable (SST, chlorophyll, etc.)
             data_var = None
-            for var_name in ["sea_surface_temperature", "analysed_sst", "sst", "chlorophyll_a", "chl"]:
+            for var_name in ["sea_surface_temperature", "copernicus_sentinel3a_slstr_l2p_sst_fullres", "copernicus_sentinel3b_slstr_l2p_sst_fullres", "copernicus_sentinel3a_olci_l2_chl_fullres", "copernicus_sentinel3b_olci_l2_chl_fullres"]:
                 if var_name in ds.data_vars:
                     data_var = ds[var_name]
                     break
@@ -646,8 +662,29 @@ async def get_data_stats(satellite: str, parameter: str, filename: str):
             if data_var is None:
                 raise HTTPException(status_code=400, detail="No data variable found in file")
             
+            # Handle multi-time data (like Sentinel-3)
+            if len(data_var.shape) > 2:  # Multi-time data
+                if target_time:
+                    # Find closest time to target_time
+                    from datetime import datetime
+                    try:
+                        target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
+                        time_coords = ds['time'].values
+                        time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
+                        closest_time_idx = np.argmin(time_diffs)
+                        data = data_var.values[closest_time_idx]
+                    except Exception as e:
+                        # Fallback to first valid time point if parsing fails
+                        data = find_first_valid_timepoint(data_var)
+                else:
+                    # Find first time point with valid data
+                    data = find_first_valid_timepoint(data_var)
+            else:
+                # Single time data (like Himawari)
+                data = data_var.values
+            
             # Get valid data (exclude NaN values)
-            valid_data = data_var.values[~np.isnan(data_var.values)]
+            valid_data = data[~np.isnan(data)]
             
             if len(valid_data) == 0:
                 raise HTTPException(status_code=400, detail="No valid data found in file")
@@ -687,7 +724,8 @@ async def get_filtered_image(
     parameter: str, 
     filename: str,
     min_value: Optional[float] = None,
-    max_value: Optional[float] = None
+    max_value: Optional[float] = None,
+    target_time: str = None
 ):
     """Generate a filtered image based on value range"""
     if satellite not in SATELLITES:
@@ -713,13 +751,34 @@ async def get_filtered_image(
         with xr.open_dataset(file_path, engine="netcdf4") as ds:
             # Find the data variable
             data_var = None
-            for var_name in ["sea_surface_temperature", "analysed_sst", "sst", "chlorophyll_a", "chl"]:
+            for var_name in ["sea_surface_temperature", "copernicus_sentinel3a_slstr_l2p_sst_fullres", "copernicus_sentinel3b_slstr_l2p_sst_fullres", "copernicus_sentinel3a_olci_l2_chl_fullres", "copernicus_sentinel3b_olci_l2_chl_fullres"]:
                 if var_name in ds.data_vars:
                     data_var = ds[var_name]
                     break
             
             if data_var is None:
                 raise HTTPException(status_code=400, detail="No data variable found in file")
+            
+            # Handle multi-time data (like Sentinel-3)
+            if len(data_var.shape) > 2:  # Multi-time data
+                if target_time:
+                    # Find closest time to target_time
+                    from datetime import datetime
+                    try:
+                        target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
+                        time_coords = ds['time'].values
+                        time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
+                        closest_time_idx = np.argmin(time_diffs)
+                        data = data_var.values[closest_time_idx]
+                    except Exception as e:
+                        # Fallback to first valid time point if parsing fails
+                        data = find_first_valid_timepoint(data_var)
+                else:
+                    # Find first time point with valid data
+                    data = find_first_valid_timepoint(data_var)
+            else:
+                # Single time data (like Himawari)
+                data = data_var.values
             
             # Get coordinates
             lon_name = None
@@ -736,8 +795,7 @@ async def get_filtered_image(
             if not lon_name or not lat_name:
                 raise HTTPException(status_code=400, detail="Coordinate variables not found")
             
-            # Get data and coordinates
-            data = data_var.values
+            # Get coordinates
             lons = ds[lon_name].values
             lats = ds[lat_name].values
             

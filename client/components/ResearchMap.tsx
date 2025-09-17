@@ -76,7 +76,7 @@ const SATELLITE_MAPPING = {
   },
 };
 
-// 辅助函数：获取参数值的占位符
+// 辅助函数：获取参数值的占位符（仅作为fallback）
 const getPlaceholderValue = (param: string, type: "min" | "max"): string => {
   switch (param) {
     case "ssth":
@@ -90,6 +90,18 @@ const getPlaceholderValue = (param: string, type: "min" | "max"): string => {
     default:
       return type === "min" ? "0" : "100";
   }
+};
+
+// 辅助函数：获取实际的数据范围（优先使用API数据）
+const getDataRange = (
+  param: string,
+  type: "min" | "max",
+  dataStats: any
+): string => {
+  if (dataStats && dataStats[type] !== undefined) {
+    return dataStats[type].toFixed(2);
+  }
+  return getPlaceholderValue(param, type);
 };
 
 // 辅助函数：获取参数的典型范围
@@ -200,21 +212,32 @@ export function ResearchMap({
     if (appliedMin || appliedMax) {
       // Only generate filtered image if we have a current file and range is applied
       if (availableFiles.length > 0 && currentTimestamp) {
-        const currentFile = availableFiles.find((f) => {
-          if (parameter === "ssth") {
-            return f.filename && f.filename.startsWith(currentTimestamp);
-          } else {
-            return f.filename.includes(currentTimestamp.substring(0, 8));
-          }
-        });
+        const currentFile = findBestFileForTime(
+          availableFiles,
+          timeRange.start
+        );
 
         if (currentFile) {
-          const ncFilename = currentFile.filename.replace(".png", ".nc");
+          // 根据参数类型选择正确的NC文件名
+          let ncFilename;
+          if (parameter === "ssth") {
+            ncFilename = currentFile.filename.replace(".png", ".nc");
+          } else {
+            // 对于Sentinel-3，根据参数类型选择正确的NC文件名
+            if (parameter === "sst-s3a" || parameter === "sst-s3b") {
+              ncFilename = "20250910_145048.nc"; // SST NC文件
+            } else if (parameter === "chl-s3a" || parameter === "chl-s3b") {
+              ncFilename = "20250910_145052.nc"; // Chl NC文件
+            } else {
+              ncFilename = "20250910_145048.nc"; // 默认SST文件
+            }
+          }
+
           const minNum = appliedMin ? parseFloat(appliedMin) : undefined;
           const maxNum = appliedMax ? parseFloat(appliedMax) : undefined;
           console.log(
             `Generating filtered image for ${parameter} with range:`,
-            { minNum, maxNum }
+            { minNum, maxNum, ncFilename }
           );
           generateFilteredImage(ncFilename, minNum, maxNum);
         }
@@ -227,14 +250,18 @@ export function ResearchMap({
   }, [appliedMin, appliedMax, availableFiles, currentTimestamp, parameter]);
 
   // 获取数据统计信息的函数
-  const fetchDataStats = async (filename: string) => {
+  const fetchDataStats = async (filename: string, targetTime?: string) => {
     if (!satelliteMapping) return;
 
     setIsLoadingStats(true);
     try {
-      const response = await fetch(
-        `http://localhost:8000/api/v1/satellites/${satelliteMapping.satellite}/${satelliteMapping.parameter}/stats/${filename}`
-      );
+      // 构建API URL，包含target_time参数
+      let apiUrl = `http://localhost:8000/api/v1/satellites/${satelliteMapping.satellite}/${satelliteMapping.parameter}/stats/${filename}`;
+      if (targetTime) {
+        apiUrl += `?target_time=${encodeURIComponent(targetTime)}`;
+      }
+
+      const response = await fetch(apiUrl);
 
       if (response.ok) {
         const stats = await response.json();
@@ -273,6 +300,10 @@ export function ResearchMap({
         params.append("min_value", minValue.toString());
       if (maxValue !== undefined)
         params.append("max_value", maxValue.toString());
+
+      // 添加target_time参数用于Sentinel-3
+      const targetTime = timeRange.start.toISOString();
+      params.append("target_time", targetTime);
 
       const response = await fetch(
         `http://localhost:8000/api/v1/satellites/${
@@ -332,35 +363,39 @@ export function ResearchMap({
     return null;
   };
 
+  // 通用文件查找函数：根据时间查找最合适的文件
+  const findBestFileForTime = (files: any[], selectedTime: Date) => {
+    if (parameter === "ssth") {
+      // Himawari 文件查找 - 查找包含时间戳的文件
+      return files.find(
+        (file) => file.filename && file.filename.startsWith(currentTimestamp)
+      );
+    } else {
+      // Sentinel-3 文件查找 - 寻找选中时间点之前最近的那张图
+      let bestFile = null;
+      let bestTimeDiff = Infinity;
+
+      for (const file of files) {
+        const fileTime = extractTimeFromSentinel3Filename(file.filename);
+        if (fileTime && fileTime.getTime() <= selectedTime.getTime()) {
+          const timeDiff = selectedTime.getTime() - fileTime.getTime();
+          if (timeDiff < bestTimeDiff) {
+            bestTimeDiff = timeDiff;
+            bestFile = file;
+          }
+        }
+      }
+      return bestFile;
+    }
+  };
+
   useEffect(() => {
     if (satelliteMapping && currentTimestamp && availableFiles.length > 0) {
       // 寻找最匹配的文件
       let targetFile: any = null;
 
-      // 根据参数类型查找匹配的文件
-      if (parameter === "ssth") {
-        // Himawari 文件查找 - 查找包含时间戳的文件
-        targetFile = availableFiles.find(
-          (file) => file.filename && file.filename.startsWith(currentTimestamp)
-        );
-      } else {
-        // Sentinel-3 文件查找 - 寻找选中时间点之前最近的那张图
-        const selectedTime = timeRange.start.getTime();
-        let bestFile = null;
-        let bestTimeDiff = Infinity;
-
-        for (const file of availableFiles) {
-          const fileTime = extractTimeFromSentinel3Filename(file.filename);
-          if (fileTime && fileTime.getTime() <= selectedTime) {
-            const timeDiff = selectedTime - fileTime.getTime();
-            if (timeDiff < bestTimeDiff) {
-              bestTimeDiff = timeDiff;
-              bestFile = file;
-            }
-          }
-        }
-        targetFile = bestFile;
-      }
+      // 使用通用文件查找函数
+      targetFile = findBestFileForTime(availableFiles, timeRange.start);
 
       console.log(`Looking for file with timestamp: ${currentTimestamp}`);
       console.log(
@@ -383,8 +418,26 @@ export function ResearchMap({
         console.log(`Image URL: ${pngUrl}`);
 
         // 获取对应的NC文件名来获取数据统计信息
-        const ncFilename = targetFile.filename.replace(".png", ".nc");
-        fetchDataStats(ncFilename);
+        let ncFilename;
+        if (parameter === "ssth") {
+          ncFilename = targetFile.filename.replace(".png", ".nc");
+        } else {
+          // 对于Sentinel-3，根据参数类型选择正确的NC文件名
+          if (parameter === "sst-s3a" || parameter === "sst-s3b") {
+            ncFilename = "20250910_145048.nc"; // SST NC文件
+          } else if (parameter === "chl-s3a" || parameter === "chl-s3b") {
+            ncFilename = "20250910_145052.nc"; // Chl NC文件
+          } else {
+            ncFilename = "20250910_145048.nc"; // 默认SST文件
+          }
+        }
+
+        // 传递目标时间给API
+        const targetTime = timeRange.start.toISOString();
+        console.log(
+          `Fetching stats for ${parameter} using NC file: ${ncFilename} at time: ${targetTime}`
+        );
+        fetchDataStats(ncFilename, targetTime);
 
         // Check if image exists
         const img = new Image();
