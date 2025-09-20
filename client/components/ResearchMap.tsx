@@ -4,7 +4,9 @@ import { useState, useEffect, useMemo } from "react";
 import { Parameter, TimeRange } from "@/types/research";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { MapPin, Layers, Zap, Image as ImageIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+import { MapPin, Layers, Zap, Image as ImageIcon, RotateCcw } from "lucide-react";
 import { useDataStore } from "@/hooks/useDataStore";
 
 interface ResearchMapProps {
@@ -58,6 +60,10 @@ export function ResearchMap({
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState(false);
   const [availableFiles, setAvailableFiles] = useState<any[]>([]);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [panPosition, setPanPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
   // 如果没有传入getParameterFiles，则使用useDataStore（向后兼容）
   const dataStore = !getParameterFiles ? useDataStore() : null;
@@ -210,6 +216,46 @@ export function ResearchMap({
     }
   }, [satelliteMapping, currentTimestamp, availableFiles, parameter, imageUrl]);
 
+  // Zoom handlers
+  const handleZoomChange = (value: number[]) => {
+    const newZoom = value[0];
+    setZoomLevel(newZoom);
+    // Reset pan position when zooming to minimum
+    if (newZoom <= 0.5) {
+      setPanPosition({ x: 0, y: 0 });
+    }
+  };
+
+  const handleReset = () => {
+    setZoomLevel(1);
+    setPanPosition({ x: 0, y: 0 });
+  };
+
+  // Mouse handlers for panning
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (zoomLevel > 1) {
+      setIsDragging(true);
+      setDragStart({ x: e.clientX - panPosition.x, y: e.clientY - panPosition.y });
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDragging && zoomLevel > 1) {
+      setPanPosition({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y,
+      });
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleMouseLeave = () => {
+    setIsDragging(false);
+  };
+
 
   if (isLoading) {
     return (
@@ -234,25 +280,38 @@ export function ResearchMap({
     >
       {imageUrl && satelliteMapping ? (
         <div
-          className="absolute inset-0 w-full h-full flex items-center justify-center"
+          className="absolute inset-0 w-full h-full flex items-center justify-center overflow-hidden cursor-grab"
           style={{
             background: `
             radial-gradient(ellipse at center, #0a1a2e 0%, #16213e 30%, #1e3a8a 70%, #3b82f6 100%),
             linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #3b82f6 100%)
           `,
             backgroundBlendMode: "multiply, normal",
+            cursor: isDragging ? 'grabbing' : zoomLevel > 1 ? 'grab' : 'default',
           }}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
         >
-          <img
-            src={imageUrl}
-            alt={`${currentParam?.name} visualization`}
-            className={`${
-              isFullscreen ? "max-w-full max-h-full" : "w-full h-full"
-            } object-contain rounded-lg`}
-            style={{ filter: "contrast(1.1) brightness(1.1)" }}
-          />
+          <div
+            style={{
+              transform: `translate(${panPosition.x}px, ${panPosition.y}px) scale(${zoomLevel})`,
+              transition: isDragging ? 'none' : 'transform 0.2s ease-out',
+            }}
+          >
+            <img
+              src={imageUrl}
+              alt={`${currentParam?.name} visualization`}
+              className={`${
+                isFullscreen ? "max-w-full max-h-full" : "w-full h-full"
+              } object-contain rounded-lg`}
+              style={{ filter: "contrast(1.1) brightness(1.1)" }}
+              draggable={false}
+            />
+          </div>
           {/* Overlay for better text readability */}
-          <div className="absolute inset-0 bg-black/10"></div>
+          <div className="absolute inset-0 bg-black/10 pointer-events-none"></div>
         </div>
       ) : (
         <div className="h-full flex items-center justify-center">
@@ -303,8 +362,48 @@ export function ResearchMap({
         )}
       </div>
 
+      {/* Zoom Controls */}
+      <div className="absolute top-4 right-4 flex flex-col gap-3 z-10">
+        <div className="bg-white/20 backdrop-blur border border-white/30 rounded-lg p-3 min-w-[160px]">
+          {/* Zoom Level Display */}
+          <div className="text-white text-xs text-center mb-2 font-medium">
+            Zoom: {Math.round(zoomLevel * 100)}%
+          </div>
+          
+          {/* Zoom Slider */}
+          <Slider
+            value={[zoomLevel]}
+            onValueChange={handleZoomChange}
+            min={0.5}
+            max={5}
+            step={0.1}
+            className="w-full"
+          />
+          
+          {/* Zoom Range Labels */}
+          <div className="flex justify-between text-white text-xs mt-1 opacity-75">
+            <span>0.5x</span>
+            <span>5x</span>
+          </div>
+          
+          {/* Reset Button */}
+          {(zoomLevel !== 1 || panPosition.x !== 0 || panPosition.y !== 0) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReset}
+              className="w-full mt-2 h-7 text-xs bg-white/10 border-white/30 text-white hover:bg-white/20 hover:text-white"
+              title="Reset Zoom and Position"
+            >
+              <RotateCcw className="h-3 w-3 mr-1" />
+              Reset
+            </Button>
+          )}
+        </div>
+      </div>
+
       {/* Live indicator */}
-      <div className="absolute top-4 right-16">
+      <div className="absolute top-4 right-20">
         <Badge className="bg-green-500/20 backdrop-blur text-green-100 border-green-400/30 animate-pulse">
           <Zap className="h-3 w-3 mr-1" />
           Live
