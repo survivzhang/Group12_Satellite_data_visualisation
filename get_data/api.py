@@ -83,6 +83,7 @@ himawari_monitor = create_file_monitor()
 # Global API instances to maintain task state
 _himawari_api_instance = None
 _sentinel3_api_instance = None
+_swot_api_instance = None
 
 def get_himawari_api():
     """Get global HimawariAPI instance"""
@@ -99,6 +100,14 @@ def get_sentinel3_api():
         from satellites.sentinel3.api import Sentinel3API
         _sentinel3_api_instance = Sentinel3API()
     return _sentinel3_api_instance
+
+def get_swot_api():
+    """Get global SwotAPI instance"""
+    global _swot_api_instance
+    if _swot_api_instance is None:
+        from satellites.swot.api import SwotAPI
+        _swot_api_instance = SwotAPI()
+    return _swot_api_instance
 
 # Helper functions
 def setup_data_directories():
@@ -124,8 +133,17 @@ def setup_data_directories():
                 base_data_dir / satellite / data_type / "png"
             ])
     
+    # SWOT directories (unified structure)
+    swot_dirs = []
+    for data_type in ['ssha']:  # Sea Surface Height Anomaly
+        swot_dirs.extend([
+            base_data_dir / "swot" / data_type / "nc",
+            base_data_dir / "swot" / data_type / "png",
+            base_data_dir / "swot" / data_type / "temp"
+        ])
+    
     # Create all directories
-    all_dirs = himawari_dirs + sentinel3_dirs
+    all_dirs = himawari_dirs + sentinel3_dirs + swot_dirs
     for directory in all_dirs:
         if not directory.exists():
             directory.mkdir(parents=True, exist_ok=True)
@@ -144,7 +162,8 @@ def setup_static_files(app: FastAPI):
     satellites_config = {
         'himawari': ['sst'],
         'sentinel3a': ['sst', 'chl'],
-        'sentinel3b': ['sst', 'chl']
+        'sentinel3b': ['sst', 'chl'],
+        'swot': ['ssha']
     }
     
     for satellite, parameters in satellites_config.items():
@@ -204,6 +223,17 @@ SATELLITES = {
                 "description": "Ocean chlorophyll concentration data"
             }
         }
+    },
+    "swot": {
+        "name": "SWOT",
+        "description": "Surface Water and Ocean Topography satellite",
+        "parameters": {
+            "ssha": {
+                "name": "Sea Surface Height Anomaly",
+                "unit": "meters",
+                "description": "Sea surface height anomaly measurements"
+            }
+        }
     }
 }
 
@@ -233,11 +263,13 @@ async def lifespan(app: FastAPI):
     print("   📊 Unified API: /api/v1/satellites")
     print("   🛰️ Himawari API: /himawari/*")
     print("   🛰️ Sentinel-3 API: /sentinel3/*")
+    print("   🛰️ SWOT API: /swot/*")
     print("   ⚡ System Status: /system/status")
     print("   🏥 Health Check: /health")
     print("   🖼️ Static Files: /static/himawari/sst/png")
     print("   🖼️ Static Files: /static/sentinel3a/{sst,chl}/png")
     print("   🖼️ Static Files: /static/sentinel3b/{sst,chl}/png")
+    print("   🖼️ Static Files: /static/swot/ssha/png")
     print("   📚 Documentation: /docs")
     
     
@@ -292,14 +324,19 @@ async def root():
                 "process": "/api/v1/process"
             },
             "satellite_specific": {
-                "himawari": "/himawari/*"
+                "himawari": "/himawari/*",
+                "sentinel3": "/sentinel3/*",
+                "swot": "/swot/*"
             },
             "system": {
                 "health": "/health",
                 "system_status": "/system/status"
             },
             "static": {
-                "himawari_png": "/static/himawari/sst/png"
+                "himawari_png": "/static/himawari/sst/png",
+                "sentinel3a_png": "/static/sentinel3a/{sst,chl}/png",
+                "sentinel3b_png": "/static/sentinel3b/{sst,chl}/png",
+                "swot_png": "/static/swot/ssha/png"
             }
         }
     }
@@ -392,6 +429,55 @@ async def get_system_status():
                 try:
                     sentinel3_api = get_sentinel3_api()
                     api_available = await sentinel3_api.is_available()
+                except Exception:
+                    api_available = False
+                
+                satellite_statuses[satellite_id] = {
+                    "available": api_available,
+                    "status": {
+                        "api_available": api_available,
+                        "data_files": {
+                            "nc_files": total_nc_files,
+                            "png_files": total_png_files
+                        },
+                        "directories": {
+                            "base_directory": str(base_data_dir / satellite_id),
+                            "data_types": dirs_status
+                        }
+                    }
+                }
+            elif satellite_id == "swot":
+                # For SWOT, check if API and directories exist
+                from pathlib import Path
+                
+                # Check unified directories
+                base_data_dir = Path("data")
+                
+                total_nc_files = 0
+                total_png_files = 0
+                dirs_status = {}
+                
+                for data_type in ['ssha']:
+                    # Check unified directories
+                    unified_nc_dir = base_data_dir / satellite_id / data_type / "nc"
+                    unified_png_dir = base_data_dir / satellite_id / data_type / "png"
+                    
+                    # Count files from unified structure
+                    if unified_nc_dir.exists():
+                        total_nc_files += len(list(unified_nc_dir.glob("*.nc")))
+                    if unified_png_dir.exists():
+                        total_png_files += len(list(unified_png_dir.glob("*.png")))
+                    
+                    dirs_status[data_type] = {
+                        "nc_exists": unified_nc_dir.exists(),
+                        "png_exists": unified_png_dir.exists()
+                    }
+                
+                # Check if SWOT API is available
+                api_available = True
+                try:
+                    swot_api = get_swot_api()
+                    api_available = await swot_api.is_available()
                 except Exception:
                     api_available = False
                 
@@ -703,6 +789,25 @@ async def sentinel3_proxy(path: str, request: Request, background_tasks: Backgro
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sentinel-3 proxy error: {str(e)}")
 
+# SWOT-specific API routes (proxy to dedicated SWOT API)
+@app.api_route("/swot/{path:path}", methods=["GET", "POST"])
+async def swot_proxy(path: str, request: Request, background_tasks: BackgroundTasks = None):
+    """Proxy requests to SWOT-specific API"""
+    try:
+        # Use global SWOT API instance
+        swot_api = get_swot_api()
+        
+        if request.method == "GET":
+            return await swot_api.handle_get_request(path, dict(request.query_params))
+        elif request.method == "POST":
+            try:
+                request_data = await request.json() if request.headers.get("content-type") == "application/json" else {}
+            except:
+                request_data = {}
+            return await swot_api.handle_post_request(path, request_data, background_tasks)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"SWOT proxy error: {str(e)}")
+
 # Error handlers
 @app.exception_handler(404)
 async def not_found_handler(request, exc):
@@ -714,6 +819,8 @@ async def not_found_handler(request, exc):
             "available_endpoints": {
                 "unified": "/api/v1/satellites",
                 "himawari": "/himawari/health",
+                "sentinel3": "/sentinel3/health",
+                "swot": "/swot/health",
                 "system": "/system/status",
                 "health": "/health",
                 "docs": "/docs"
