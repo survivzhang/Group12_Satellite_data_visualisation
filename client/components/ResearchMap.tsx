@@ -23,8 +23,12 @@ import {
   FolderOpen,
   Copy,
   Info,
+  Globe,
+  Camera,
 } from "lucide-react";
 import { useDataStore } from "@/hooks/useDataStore";
+import { InteractiveMap } from "@/components/InteractiveMap";
+import { CanvasInteractiveMap } from "@/components/CanvasInteractiveMap";
 
 interface ResearchMapProps {
   parameter: string;
@@ -182,6 +186,9 @@ export function ResearchMap({
     localPath?: string;
   } | null>(null);
   const [isImageInfoDialogOpen, setIsImageInfoDialogOpen] = useState(false);
+  
+  // State for map view mode
+  const [viewMode, setViewMode] = useState<"static" | "interactive" | "canvas">("static");
 
   // 如果没有传入getParameterFiles，则使用useDataStore（向后兼容）
   const dataStore = !getParameterFiles ? useDataStore() : null;
@@ -545,6 +552,92 @@ export function ResearchMap({
     );
   }
 
+  // 选择要渲染的内容
+  if (viewMode === "interactive") {
+    return (
+      <div
+        className={`relative ${
+          isFullscreen ? "h-full" : "h-96"
+        } rounded-lg overflow-hidden`}
+      >
+        {/* 视图切换按钮 */}
+        <div className="absolute top-4 right-4 z-[1000] flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setViewMode("canvas")}
+            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
+            title="Switch to canvas heatmap view"
+          >
+            <Globe className="h-3 w-3 mr-1" />
+            Canvas
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setViewMode("static")}
+            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
+            title="Switch to static image view"
+          >
+            <Camera className="h-3 w-3 mr-1" />
+            Static
+          </Button>
+        </div>
+
+        <InteractiveMap
+          parameter={parameter}
+          timeRange={timeRange}
+          availableParameters={availableParameters}
+          isFullscreen={isFullscreen}
+          getParameterFiles={getFiles}
+        />
+      </div>
+    );
+  }
+
+  if (viewMode === "canvas") {
+    return (
+      <div
+        className={`relative ${
+          isFullscreen ? "h-full" : "h-96"
+        } rounded-lg overflow-hidden`}
+      >
+        {/* 视图切换按钮 */}
+        <div className="absolute top-4 right-4 z-[1000] flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setViewMode("interactive")}
+            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
+            title="Switch to point interactive view"
+          >
+            <MapPin className="h-3 w-3 mr-1" />
+            Points
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setViewMode("static")}
+            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
+            title="Switch to static image view"
+          >
+            <Camera className="h-3 w-3 mr-1" />
+            Static
+          </Button>
+        </div>
+
+        <CanvasInteractiveMap
+          parameter={parameter}
+          timeRange={timeRange}
+          availableParameters={availableParameters}
+          isFullscreen={isFullscreen}
+          getParameterFiles={getFiles}
+        />
+      </div>
+    );
+  }
+
+
   return (
     <div
       className={`relative ${
@@ -760,6 +853,30 @@ export function ResearchMap({
             </DialogContent>
           </Dialog>
         )}
+
+        {/* View Mode Toggle Buttons */}
+        <div className="flex flex-col gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setViewMode("canvas")}
+            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 w-fit"
+            title="Switch to canvas view"
+          >
+            <Globe className="h-3 w-3 mr-1" />
+            Canvas
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setViewMode("interactive")}
+            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 w-fit"
+            title="Switch to point interactive view"
+          >
+            <MapPin className="h-3 w-3 mr-1" />
+            Interactive
+          </Button>
+        </div>
 
         {/* Parameter Value Range Selector Button */}
         <Dialog open={isRangeDialogOpen} onOpenChange={setIsRangeDialogOpen}>
