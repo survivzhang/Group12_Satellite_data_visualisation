@@ -20,6 +20,9 @@ import {
   Zap,
   Image as ImageIcon,
   Settings,
+  FolderOpen,
+  Copy,
+  Info,
 } from "lucide-react";
 import { useDataStore } from "@/hooks/useDataStore";
 
@@ -120,6 +123,22 @@ const getTypicalRange = (param: string): string => {
   }
 };
 
+// 辅助函数：获取Sentinel-3的fallback文件名
+const getSentinel3FallbackFilename = (param: string): string => {
+  switch (param) {
+    case "sst-s3a":
+      return "20250923_211031.nc"; // Sentinel-3A SST NC文件
+    case "sst-s3b":
+      return "20250923_211028.nc"; // Sentinel-3B SST NC文件
+    case "chl-s3a":
+      return "20250923_211036.nc"; // Sentinel-3A Chl NC文件
+    case "chl-s3b":
+      return "20250923_211040.nc"; // Sentinel-3B Chl NC文件
+    default:
+      return "20250923_211031.nc"; // 默认SST文件
+  }
+};
+
 export function ResearchMap({
   parameter,
   timeRange,
@@ -155,6 +174,14 @@ export function ResearchMap({
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [isGeneratingFilteredImage, setIsGeneratingFilteredImage] =
     useState(false);
+  
+  // State for current image path display functionality
+  const [currentImageInfo, setCurrentImageInfo] = useState<{
+    filename: string;
+    url: string;
+    localPath?: string;
+  } | null>(null);
+  const [isImageInfoDialogOpen, setIsImageInfoDialogOpen] = useState(false);
 
   // 如果没有传入getParameterFiles，则使用useDataStore（向后兼容）
   const dataStore = !getParameterFiles ? useDataStore() : null;
@@ -218,28 +245,40 @@ export function ResearchMap({
         );
 
         if (currentFile) {
-          // 根据参数类型选择正确的NC文件名
-          let ncFilename;
-          if (parameter === "ssth") {
-            ncFilename = currentFile.filename.replace(".png", ".nc");
-          } else {
-            // 对于Sentinel-3，根据参数类型选择正确的NC文件名
-            if (parameter === "sst-s3a" || parameter === "sst-s3b") {
-              ncFilename = "20250910_145048.nc"; // SST NC文件
-            } else if (parameter === "chl-s3a" || parameter === "chl-s3b") {
-              ncFilename = "20250910_145052.nc"; // Chl NC文件
+          // 创建异步函数来处理NC文件名获取
+          const handleNCFilename = async () => {
+            let ncFilename;
+            if (parameter === "ssth") {
+              ncFilename = currentFile.filename.replace(".png", ".nc");
             } else {
-              ncFilename = "20250910_145048.nc"; // 默认SST文件
+              // 对于Sentinel-3，获取唯一的NC文件（包含所有时间范围数据）
+              try {
+                const ncFiles = await getFiles(parameter, "nc");
+                if (ncFiles && ncFiles.length > 0) {
+                  // Sentinel-3通常只有一个NC文件包含整个查询时间范围的数据
+                  ncFilename = ncFiles[0].filename;
+                  console.log(`Using Sentinel-3 NC file for ${parameter}: ${ncFilename}`);
+                } else {
+                  console.warn(`No NC files found for ${parameter}, using fallback`);
+                  ncFilename = getSentinel3FallbackFilename(parameter);
+                }
+              } catch (error) {
+                console.warn("Failed to get NC files list, using fallback:", error);
+                ncFilename = getSentinel3FallbackFilename(parameter);
+              }
             }
-          }
 
-          const minNum = appliedMin ? parseFloat(appliedMin) : undefined;
-          const maxNum = appliedMax ? parseFloat(appliedMax) : undefined;
-          console.log(
-            `Generating filtered image for ${parameter} with range:`,
-            { minNum, maxNum, ncFilename }
-          );
-          generateFilteredImage(ncFilename, minNum, maxNum);
+            const minNum = appliedMin ? parseFloat(appliedMin) : undefined;
+            const maxNum = appliedMax ? parseFloat(appliedMax) : undefined;
+            console.log(
+              `Generating filtered image for ${parameter} with range:`,
+              { minNum, maxNum, ncFilename }
+            );
+            generateFilteredImage(ncFilename, minNum, maxNum);
+          };
+
+          // 执行异步函数
+          handleNCFilename();
         }
       }
     } else {
@@ -406,27 +445,39 @@ export function ResearchMap({
       if (targetFile) {
         const pngUrl = `http://localhost:8000${targetFile.url}`;
 
-        // 获取对应的NC文件名来获取数据统计信息（移到条件判断之前）
-        let ncFilename;
-        if (parameter === "ssth") {
-          ncFilename = targetFile.filename.replace(".png", ".nc");
-        } else {
-          // 对于Sentinel-3，根据参数类型选择正确的NC文件名
-          if (parameter === "sst-s3a" || parameter === "sst-s3b") {
-            ncFilename = "20250910_145048.nc"; // SST NC文件
-          } else if (parameter === "chl-s3a" || parameter === "chl-s3b") {
-            ncFilename = "20250910_145052.nc"; // Chl NC文件
+        // 获取对应的NC文件名来获取数据统计信息
+        const handleStatsRetrieval = async () => {
+          let ncFilename;
+          if (parameter === "ssth") {
+            ncFilename = targetFile.filename.replace(".png", ".nc");
           } else {
-            ncFilename = "20250910_145048.nc"; // 默认SST文件
+            // 对于Sentinel-3，动态获取NC文件（类似Himawari的方式）
+            try {
+              const ncFiles = await getFiles(parameter, "nc");
+              if (ncFiles && ncFiles.length > 0) {
+                // 使用最新的NC文件（按修改时间排序）
+                ncFilename = ncFiles[0].filename;
+                console.log(`Using latest NC file for stats ${parameter}: ${ncFilename}`);
+              } else {
+                console.warn(`No NC files found for stats ${parameter}, using fallback`);
+                ncFilename = getSentinel3FallbackFilename(parameter);
+              }
+            } catch (error) {
+              console.warn("Failed to get NC files list for stats, using fallback:", error);
+              ncFilename = getSentinel3FallbackFilename(parameter);
+            }
           }
-        }
 
-        // 传递目标时间给API
-        const targetTime = timeRange.start.toISOString();
-        console.log(
-          `Fetching stats for ${parameter} using NC file: ${ncFilename} at time: ${targetTime}`
-        );
-        fetchDataStats(ncFilename, targetTime);
+          // 传递目标时间给API
+          const targetTime = timeRange.start.toISOString();
+          console.log(
+            `Fetching stats for ${parameter} using NC file: ${ncFilename} at time: ${targetTime}`
+          );
+          fetchDataStats(ncFilename, targetTime);
+        };
+
+        // 执行异步函数
+        handleStatsRetrieval();
 
         // 避免重复加载相同的图片
         if (imageUrl === pngUrl) {
@@ -439,17 +490,27 @@ export function ResearchMap({
         console.log(`Loading ${parameter} image:`, targetFile.filename);
         console.log(`Image URL: ${pngUrl}`);
 
-        // Check if image exists
+        // Check if image exists and update image info
         const img = new Image();
         img.onload = () => {
           setImageUrl(pngUrl);
           setIsLoading(false);
+          
+          // Update current image info for path display functionality
+          const imageInfo = {
+            filename: targetFile.filename,
+            url: pngUrl,
+            localPath: `data/${satelliteMapping.satellite}/${satelliteMapping.parameter}/png/${targetFile.filename}`
+          };
+          setCurrentImageInfo(imageInfo);
+          console.log('Current image info updated:', imageInfo);
         };
         img.onerror = () => {
           console.warn(`PNG failed to load: ${targetFile.filename}`);
           setImageError(true);
           setImageUrl(null);
           setIsLoading(false);
+          setCurrentImageInfo(null); // Clear image info on error
         };
         img.src = pngUrl;
       } else {
@@ -459,17 +520,20 @@ export function ResearchMap({
         setImageError(true);
         setImageUrl(null);
         setIsLoading(false);
+        setCurrentImageInfo(null); // Clear image info when no file found
       }
     } else if (satelliteMapping) {
-      // 参数支持但没有可用文件
+      // Parameter supported but no available files
       setIsLoading(false);
       setImageUrl(null);
       setImageError(true);
+      setCurrentImageInfo(null); // Clear image info when no files available
     } else {
-      // 不支持的参数，显示占位符
+      // Unsupported parameter, show placeholder
       setIsLoading(false);
       setImageUrl(null);
       setImageError(false);
+      setCurrentImageInfo(null); // Clear image info for unsupported parameters
     }
   }, [satelliteMapping, currentTimestamp, availableFiles, parameter, imageUrl]);
 
@@ -600,6 +664,101 @@ export function ResearchMap({
               {currentParam?.unit && ` ${currentParam.unit}`}
             </div>
           </Badge>
+        )}
+
+        {/* Image Path Display Button */}
+        {imageUrl && currentImageInfo && (
+          <Dialog open={isImageInfoDialogOpen} onOpenChange={setIsImageInfoDialogOpen}>
+            <DialogTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 w-fit"
+                title="View image file information"
+              >
+                <Info className="h-3 w-3 mr-1" />
+                Image Info
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Current Image Information</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-sm font-medium text-gray-700">Filename</Label>
+                    <div className="mt-1 p-2 bg-gray-50 rounded border text-sm font-mono">
+                      {currentImageInfo.filename}
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <Label className="text-sm font-medium text-gray-700">Local Path</Label>
+                    <div className="mt-1 p-2 bg-gray-50 rounded border text-sm font-mono break-all">
+                      {currentImageInfo.localPath}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => {
+                        navigator.clipboard.writeText(currentImageInfo.localPath || '')
+                          .then(() => {
+                            // You could add a toast notification here
+                            console.log('Path copied to clipboard');
+                          })
+                          .catch((err) => {
+                            console.error('Failed to copy path:', err);
+                          });
+                      }}
+                    >
+                      <Copy className="h-3 w-3 mr-1" />
+                      Copy Path
+                    </Button>
+                  </div>
+                  
+                  <div>
+                    <Label className="text-sm font-medium text-gray-700">Server URL</Label>
+                    <div className="mt-1 p-2 bg-gray-50 rounded border text-sm font-mono break-all">
+                      {currentImageInfo.url}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => {
+                        window.open(currentImageInfo.url, '_blank');
+                      }}
+                    >
+                      <FolderOpen className="h-3 w-3 mr-1" />
+                      Open in Browser
+                    </Button>
+                  </div>
+                  
+                  <div className="p-3 bg-blue-50 rounded border border-blue-200">
+                    <p className="text-xs text-blue-700 font-medium mb-1">
+                      Image Details:
+                    </p>
+                    <div className="text-xs text-blue-600">
+                      <p>Satellite: {satelliteMapping?.satellite.toUpperCase()}</p>
+                      <p>Parameter: {currentParam?.name}</p>
+                      <p>Timestamp: {timeRange.start.toLocaleString()}</p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsImageInfoDialogOpen(false)}
+                  >
+                    Close
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         )}
 
         {/* Parameter Value Range Selector Button */}
