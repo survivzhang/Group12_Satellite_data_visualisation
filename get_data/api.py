@@ -101,6 +101,37 @@ def get_sentinel3_api():
     return _sentinel3_api_instance
 
 # Helper functions
+def find_first_valid_timepoint(data_var):
+    """Find the first time point with valid data"""
+    import numpy as np
+    
+    if len(data_var.shape) <= 2:
+        return data_var.values
+    
+    for i in range(data_var.shape[0]):
+        time_data = data_var.values[i]
+        valid_data = time_data[~np.isnan(time_data)]
+        if len(valid_data) > 0:
+            return time_data
+    
+    # If no valid data found, return first time point
+    return data_var.values[0]
+
+def get_parameter_units(parameter: str, satellite: str = None) -> str:
+    """Get the correct units for a parameter"""
+    if satellite in ['sentinel3a', 'sentinel3b']:
+        # Use Sentinel-3 specific units
+        sentinel3_api = get_sentinel3_api()
+        return sentinel3_api.get_parameter_unit(parameter)
+    else:
+        # Use general units for other satellites
+        if parameter == "sst":
+            return "K"
+        elif parameter == "chl":
+            return "mg/m³"
+        else:
+            return "unknown"
+
 def setup_data_directories():
     """Ensure all necessary data directories exist with unified structure"""
     from pathlib import Path
@@ -615,6 +646,294 @@ async def download_nc_file(satellite: str, parameter: str, filename: str):
         }
         print(f"❌ Error downloading file: {error_details}")
         raise HTTPException(status_code=500, detail=f"Failed to download file: {str(e)}")
+
+@app.get("/api/v1/satellites/{satellite}/{parameter}/stats/{filename}")
+async def get_data_stats(satellite: str, parameter: str, filename: str, target_time: str = None):
+    """Get data statistics (min, max, mean) from a specific NC file"""
+    if satellite not in SATELLITES:
+        raise HTTPException(status_code=404, detail=f"Satellite '{satellite}' not found")
+    
+    try:
+        import xarray as xr
+        import numpy as np
+        from pathlib import Path
+        
+        # Unified directory structure
+        base_data_dir = Path("data")
+        file_path = base_data_dir / satellite / parameter / "nc" / filename
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+        
+        # Read the NetCDF file
+        with xr.open_dataset(file_path, engine="netcdf4") as ds:
+            # Find the data variable (SST, chlorophyll, etc.)
+            data_var = None
+            if satellite in ['sentinel3a', 'sentinel3b']:
+                # Use Sentinel-3 specific variable lookup
+                sentinel3_api = get_sentinel3_api()
+                data_var = sentinel3_api.find_data_variable(ds, parameter)
+            else:
+                # Use general variable lookup for other satellites
+                for var_name in ["sea_surface_temperature"]:
+                    if var_name in ds.data_vars:
+                        data_var = ds[var_name]
+                        break
+            
+            if data_var is None:
+                raise HTTPException(status_code=400, detail="No data variable found in file")
+            
+            # Handle multi-time data using satellite-specific modules
+            if len(data_var.shape) > 2:  # Multi-time data
+                if satellite in ['sentinel3a', 'sentinel3b']:
+                    # Use Sentinel-3 specific data processing
+                    sentinel3_api = get_sentinel3_api()
+                    time_coords = ds['time'].values
+                    data = sentinel3_api.get_sentinel3_data(data_var, target_time, time_coords)
+                else:
+                    # For other satellites, use general target_time logic
+                    if target_time:
+                        from datetime import datetime
+                        try:
+                            target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
+                            time_coords = ds['time'].values
+                            time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
+                            closest_time_idx = np.argmin(time_diffs)
+                            data = data_var.values[closest_time_idx]
+                            
+                            # Check if the closest time point has valid data
+                            valid_data = data[~np.isnan(data)]
+                            if len(valid_data) == 0:
+                                # If closest time point has no valid data, try other time points
+                                print(f"Closest time point has no valid data, trying other time points...")
+                                data = find_first_valid_timepoint(data_var)
+                        except Exception as e:
+                            data = find_first_valid_timepoint(data_var) # Fallback to first valid time point
+                    else:
+                        data = find_first_valid_timepoint(data_var) # Default to first valid time point
+            else:
+                data = data_var.values # Single time data
+            
+            # Get valid data (exclude NaN values)
+            valid_data = data[~np.isnan(data)]
+            
+            if len(valid_data) == 0:
+                raise HTTPException(status_code=400, detail="No valid data found in file")
+            
+            # Calculate statistics
+            stats = {
+                "min": float(np.min(valid_data)),
+                "max": float(np.max(valid_data)),
+                "mean": float(np.mean(valid_data)),
+                "std": float(np.std(valid_data)),
+                "count": int(len(valid_data)),
+                "units": get_parameter_units(parameter, satellite),
+                "parameter": parameter,
+                "satellite": satellite,
+                "filename": filename
+            }
+            
+            return stats
+            
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions as-is
+    except Exception as e:
+        import traceback
+        error_details = {
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "satellite": satellite,
+            "parameter": parameter,
+            "filename": filename
+        }
+        print(f"❌ Error getting data stats: {error_details}")
+        raise HTTPException(status_code=500, detail=f"Failed to get data statistics: {str(e)}")
+
+@app.get("/api/v1/satellites/{satellite}/{parameter}/filtered-image/{filename}")
+async def get_filtered_image(
+    satellite: str, 
+    parameter: str, 
+    filename: str,
+    min_value: Optional[float] = None,
+    max_value: Optional[float] = None,
+    target_time: str = None
+):
+    """Generate a filtered image based on value range"""
+    if satellite not in SATELLITES:
+        raise HTTPException(status_code=404, detail=f"Satellite '{satellite}' not found")
+    
+    try:
+        import xarray as xr
+        import numpy as np
+        import matplotlib.pyplot as plt
+        import matplotlib.colors as mcolors
+        from pathlib import Path
+        import io
+        import base64
+        
+        # Unified directory structure
+        base_data_dir = Path("data")
+        file_path = base_data_dir / satellite / parameter / "nc" / filename
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+        
+        # Read the NetCDF file
+        with xr.open_dataset(file_path, engine="netcdf4") as ds:
+            # Find the data variable
+            data_var = None
+            if satellite in ['sentinel3a', 'sentinel3b']:
+                # Use Sentinel-3 specific variable lookup
+                sentinel3_api = get_sentinel3_api()
+                data_var = sentinel3_api.find_data_variable(ds, parameter)
+            else:
+                # Use general variable lookup for other satellites
+                for var_name in ["sea_surface_temperature"]:
+                    if var_name in ds.data_vars:
+                        data_var = ds[var_name]
+                        break
+            
+            if data_var is None:
+                raise HTTPException(status_code=400, detail="No data variable found in file")
+            
+            # Handle multi-time data using satellite-specific modules
+            if len(data_var.shape) > 2:  # Multi-time data
+                if satellite in ['sentinel3a', 'sentinel3b']:
+                    # Use Sentinel-3 specific data processing
+                    sentinel3_api = get_sentinel3_api()
+                    time_coords = ds['time'].values
+                    data = sentinel3_api.get_sentinel3_data(data_var, target_time, time_coords)
+                else:
+                    # For other satellites, use general target_time logic
+                    if target_time:
+                        from datetime import datetime
+                        try:
+                            target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
+                            time_coords = ds['time'].values
+                            time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
+                            closest_time_idx = np.argmin(time_diffs)
+                            data = data_var.values[closest_time_idx]
+                            
+                            # Check if the closest time point has valid data
+                            valid_data = data[~np.isnan(data)]
+                            if len(valid_data) == 0:
+                                # If closest time point has no valid data, try other time points
+                                print(f"Closest time point has no valid data, trying other time points...")
+                                data = find_first_valid_timepoint(data_var)
+                        except Exception as e:
+                            data = find_first_valid_timepoint(data_var) # Fallback to first valid time point
+                    else:
+                        data = find_first_valid_timepoint(data_var) # Default to first valid time point
+            else:
+                data = data_var.values # Single time data
+            
+            # Get coordinates
+            lon_name = None
+            lat_name = None
+            for coord in ["lon", "longitude"]:
+                if coord in ds.coords:
+                    lon_name = coord
+                    break
+            for coord in ["lat", "latitude"]:
+                if coord in ds.coords:
+                    lat_name = coord
+                    break
+            
+            if not lon_name or not lat_name:
+                raise HTTPException(status_code=400, detail="Coordinate variables not found")
+            
+            # Get coordinates
+            lons = ds[lon_name].values
+            lats = ds[lat_name].values
+            
+            # Squeeze data to remove single dimensions
+            data = np.squeeze(data)
+            lons = np.squeeze(lons)
+            lats = np.squeeze(lats)
+            
+            # Get the full data range for absolute colormap
+            full_data = data.copy()
+            valid_full_data = full_data[~np.isnan(full_data)]
+            full_min = np.min(valid_full_data) if len(valid_full_data) > 0 else 0
+            full_max = np.max(valid_full_data) if len(valid_full_data) > 0 else 1
+            
+            # Apply range filtering
+            if min_value is not None or max_value is not None:
+                mask = np.ones_like(data, dtype=bool)
+                if min_value is not None:
+                    mask &= (data >= min_value)
+                if max_value is not None:
+                    mask &= (data <= max_value)
+                # Set values outside range to NaN
+                data = np.where(mask, data, np.nan)
+            
+            # Create the plot
+            fig, ax = plt.subplots(figsize=(10, 8), subplot_kw={'projection': None})
+            
+            # Use appropriate colormap based on satellite and parameter
+            if satellite in ['sentinel3a', 'sentinel3b']:
+                # Use Sentinel-3 specific colormap
+                sentinel3_api = get_sentinel3_api()
+                colormap_name = sentinel3_api.get_parameter_colormap(parameter)
+                cmap = getattr(plt.cm, colormap_name, plt.cm.viridis)
+            else:
+                # Use general colormap for other satellites
+                if parameter == "sst":
+                    cmap = plt.cm.turbo  # Use turbo for SST (same as original)
+                elif parameter == "chl":
+                    cmap = plt.cm.viridis  # Use viridis for chlorophyll
+                else:
+                    cmap = plt.cm.viridis
+            
+            # Create meshgrid for plotting
+            if lons.ndim == 1 and lats.ndim == 1:
+                LON, LAT = np.meshgrid(lons, lats)
+            else:
+                LON, LAT = lons, lats
+            
+            # Plot the data with absolute colormap
+            im = ax.pcolormesh(LON, LAT, data, cmap=cmap, shading='nearest', vmin=full_min, vmax=full_max)
+            
+            # Add colorbar
+            cbar = plt.colorbar(im, ax=ax, shrink=0.8)
+            cbar.set_label(f'{parameter.upper()} ({get_parameter_units(parameter, satellite)})')
+            
+            # Set title
+            ax.set_title(f'{satellite.upper()} {parameter.upper()} - {filename}')
+            ax.set_xlabel('Longitude')
+            ax.set_ylabel('Latitude')
+            
+            # Convert to base64
+            buffer = io.BytesIO()
+            plt.savefig(buffer, format='png', dpi=150, bbox_inches='tight')
+            buffer.seek(0)
+            image_base64 = base64.b64encode(buffer.getvalue()).decode()
+            plt.close(fig)
+            
+            return {
+                "image": f"data:image/png;base64,{image_base64}",
+                "satellite": satellite,
+                "parameter": parameter,
+                "filename": filename,
+                "filter_range": {
+                    "min": min_value,
+                    "max": max_value
+                }
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_details = {
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "satellite": satellite,
+            "parameter": parameter,
+            "filename": filename
+        }
+        print(f"❌ Error generating filtered image: {error_details}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate filtered image: {str(e)}")
 
 # Simple processing endpoint (placeholder for now)
 @app.post("/api/v1/process", response_model=ProcessingStatus)

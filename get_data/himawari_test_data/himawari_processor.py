@@ -55,7 +55,7 @@ class HimawariDataProcessor:
         for directory in [self.legacy_base_dir, self.legacy_temp_dir, self.legacy_parts_dir, self.legacy_png_dir]:
             directory.mkdir(parents=True, exist_ok=True)
     
-    def ensure_earthdata_login(self, netrc_path: Path = Path(".netrc")):
+    def ensure_earthdata_login(self, netrc_path: Path = Path(__file__).parent / ".netrc"):
         """Login to Earthdata using .netrc file."""
         if not netrc_path.exists():
             raise FileNotFoundError(
@@ -83,7 +83,7 @@ class HimawariDataProcessor:
         latlims: Tuple[float, float],
         delay_hours: int = 4,
         max_results: Optional[int] = None,
-        netrc_path: Path = Path(".netrc")
+        netrc_path: Path = Path(__file__).parent / ".netrc"
     ) -> pd.DataFrame:
         """
         Query available Himawari-9 L3C data.
@@ -158,56 +158,55 @@ class HimawariDataProcessor:
         lonlims: Tuple[float, float],
         latlims: Tuple[float, float],
         tstep: int = 3600,
-        netrc_path: Path = Path(".netrc")
+        netrc_path: Path = Path(__file__).parent / ".netrc",
+        temp_range: Optional[Tuple[float, float]] = None,
+        units: str = "K",
     ):
-        """
-        Process a time series of Himawari data.
-        
-        Args:
-            timelims: Time range as (start, end) ISO strings
-            lonlims: Longitude range as (west, east)
-            latlims: Latitude range as (south, north)
-            tstep: Time step in seconds
-            netrc_path: Path to .netrc file
-        """
         self.ensure_earthdata_login(netrc_path)
-        
+
         # Generate time range
         dtlims = (np.datetime64(timelims[0]), np.datetime64(timelims[1]))
         dtrange = np.arange(dtlims[0], dtlims[1], np.timedelta64(tstep, 's'))
-        
+
         # Account for processing delay
         now_utc = np.datetime64(pd.Timestamp.utcnow().to_pydatetime())
         safe_latest = now_utc - np.timedelta64(4, 'h')
         dtrange = dtrange[dtrange <= safe_latest]
-        
+
         print(f"Processing {len(dtrange)} time steps")
         print(f"Time range: {timelims[0]} to {pd.Timestamp(safe_latest)} UTC")
-        
+
         for dt in dtrange:
-            self._process_single_timestamp(dt, lonlims, latlims)
+            self._process_single_timestamp(
+                dt,
+                lonlims,
+                latlims,
+                temp_range=temp_range,
+                units=units,
+            )
+
     
     def _process_single_timestamp(
         self,
         dt: np.datetime64,
         lonlims: Tuple[float, float],
-        latlims: Tuple[float, float]
+        latlims: Tuple[float, float],
+        temp_range: Optional[Tuple[float, float]] = None,   # Added
+        units: str = "K",                                    # Added
     ):
-        """Process data for a single timestamp."""
         dt_pd = pd.Timestamp(dt)
         time_str = dt_pd.strftime("%Y%m%d%H%M%S")
         file_name = f"{time_str}-{self.LONG_NAME}.nc"
-        
+
         file_path = self.temp_dir / file_name
         output_path = self.nc_dir / f"{time_str}.nc"
-        
+
         if output_path.exists():
             print(f"Already processed: {output_path}")
             return
-        
-        # Download file
+
         link = f"https://archive.podaac.earthdata.nasa.gov/podaac-ops-cumulus-protected/{self.COLLECTION_SHORT_NAME}/{file_name}"
-        
+
         if not file_path.exists():
             print(f"Downloading: {file_name}")
             paths = earthaccess.download(link, str(self.temp_dir))
@@ -218,17 +217,20 @@ class HimawariDataProcessor:
         else:
             print(f"Using cached file: {file_path}")
             file_on_disk = file_path
-        
+
         try:
-            self._process_netcdf_file(file_on_disk, output_path, lonlims, latlims, time_str)
+            self._process_netcdf_file(
+                file_on_disk, output_path, lonlims, latlims, time_str,
+                temp_range=temp_range, units=units        # Pass down
+            )
         finally:
-            # Clean up temporary file
             if file_on_disk.exists():
                 try:
                     os.remove(file_on_disk)
                     print(f"Removed temp file: {file_on_disk}")
                 except PermissionError:
                     print(f"Could not remove temp file (still in use): {file_on_disk}")
+
     
     def _process_netcdf_file(
         self,
@@ -236,92 +238,112 @@ class HimawariDataProcessor:
         output_path: Path,
         lonlims: Tuple[float, float],
         latlims: Tuple[float, float],
-        time_str: str
+        time_str: str,
+        temp_range: Optional[Tuple[float, float]] = None,   # Added
+        units: str = "K",                                    # Added
     ):
-        """Process a single NetCDF file."""
         with xr.open_dataset(file_path, engine="netcdf4") as ds:
-            # Identify coordinate names
             lon_name = self._pick_coord_name(ds, ["lon", "longitude"])
             lat_name = self._pick_coord_name(ds, ["lat", "latitude"])
             time_name = self._pick_coord_name(ds, ["time", "t"])
-            
-            # Ensure latitude is in ascending order for slicing
+
             if np.asarray(ds[lat_name]).ndim == 1:
                 if float(ds[lat_name].values[0]) > float(ds[lat_name].values[-1]):
                     ds = ds.sortby(lat_name)
-            
-            # Crop to region of interest
+
             lon_slice = slice(min(lonlims), max(lonlims))
             lat_slice = slice(min(latlims), max(latlims))
             ds_cropped = ds.sel({lon_name: lon_slice, lat_name: lat_slice})
-            
-            # Find SST variable
+
             sst_name = self._find_sst_variable(ds_cropped)
-            
-            # Find quality variable (optional)
             quality_name = self._find_quality_variable(ds_cropped)
-            
-            # Keep only necessary variables
+
             keep_vars = [sst_name] + ([quality_name] if quality_name else [])
             ds_cropped = ds_cropped[keep_vars].copy()
-            ds_cropped.attrs = {}  # Remove global attributes to reduce file size
-            
-            # Save processed data
+            ds_cropped.attrs = {}
+
             ds_cropped.to_netcdf(output_path)
             print(f"Saved cropped dataset to {output_path}")
-            
-            # Generate visualization
-            self._create_visualization(ds_cropped, sst_name, time_name, time_str)
+
+            # Pass temperature range to plotting function
+            self._create_visualization(
+                ds_cropped, sst_name, time_name, time_str,
+                temp_range=temp_range, units=units
+            )
+
     
-    def _create_visualization(self, ds: xr.Dataset, sst_name: str, time_name: str, time_str: str):
-        """Create PNG visualization of SST data with lon/lat axes."""
+    def _create_visualization(
+        self,
+        ds: xr.Dataset,
+        sst_name: str,
+        time_name: str,
+        time_str: str,
+        temp_range: Optional[Tuple[float, float]] = None,   # e.g., (298, 303) in K
+        units: str = "K"                                    # "K" or "C"
+    ):
+        """Create PNG visualization of SST with lon/lat axes and a value mask."""
         sst = ds[sst_name]
 
-    # 取第一帧（如果有时间维）
+    # Take first frame (if time dimension exists)
         if time_name in sst.dims and sst.sizes.get(time_name, 0) >= 1:
             sst0 = sst.isel({time_name: 0})
         else:
             sst0 = sst
 
-    # 无有效数据直接跳过
+    # Skip if no valid data
         if not np.isfinite(sst0.values).any():
             print(f"SST all-NaN for {time_str}, skipping PNG.")
             return
 
-    # 读取经纬度坐标名
+    # Longitude and latitude names and data
         lon_name = self._pick_coord_name(ds, ["lon", "longitude"])
         lat_name = self._pick_coord_name(ds, ["lat", "latitude"])
-
-    # 读取经纬度数据（支持 1D/2D）
         lon = ds[lon_name].values
         lat = ds[lat_name].values
 
-        if lon.ndim == 1 and lat.ndim == 1:
-            west, east = float(np.nanmin(lon)), float(np.nanmax(lon))
-            south, north = float(np.nanmin(lat)), float(np.nanmax(lat))
-        else:
-        # 2D 网格
-            west, east = float(np.nanmin(lon)), float(np.nanmax(lon))
-            south, north = float(np.nanmin(lat)), float(np.nanmax(lat))
-
+        west, east = float(np.nanmin(lon)), float(np.nanmax(lon))
+        south, north = float(np.nanmin(lat)), float(np.nanmax(lat))
         extent = [west, east, south, north]
 
-    # 颜色范围
-        vmin = float(np.nanmin(sst0.values))
-        vmax = float(np.nanmax(sst0.values))
+    # Handle temperature range (default use data min/max; if range given, use range and set out-of-range to white)
+        data = np.array(sst0.values, dtype=float)  # Copy to ndarray
+        if temp_range is None:
+            vmin = float(np.nanmin(data))
+            vmax = float(np.nanmax(data))
+        else:
+            tmin, tmax = temp_range
+        # If user uses °C, convert to K (assuming data is in K)
+            if units.upper() == "C":
+                tmin = tmin + 273.15
+                tmax = tmax + 273.15
+            vmin, vmax = float(tmin), float(tmax)
+        # Set out-of-range values to NaN (display as white)
+            mask = ~np.isnan(data) & ((data < vmin) | (data > vmax))
+            data = data.copy()
+            data[mask] = np.nan
 
-    # 绘图
+    # Colormap: set NaN / under / over all to white as fallback
+        cmap = plt.get_cmap("turbo").copy()
+        cmap.set_bad("white")
+        cmap.set_under("white")
+        cmap.set_over("white")
+
+    # Color normalization: no clipping (out-of-range values already set to NaN)
+        norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax, clip=False)
+
+    # Plot
         fig, ax = plt.subplots(figsize=(10, 8))
         im = ax.imshow(
-            sst0.values,
+            data,
             origin="lower",
-            cmap="turbo",
-            vmin=vmin,
-            vmax=vmax,
-            extent=extent,  # 关键：按经纬度定位
-            aspect="auto"
+            cmap=cmap,
+            norm=norm,
+            extent=extent,
+            aspect="auto",
         )
-        plt.colorbar(im, ax=ax, label="Sea Surface Temperature (K)")
+        cbar_units = "°C" if units.upper() == "C" else "K"
+        plt.colorbar(im, ax=ax, label=f"Sea Surface Temperature ({cbar_units})")
+
         ax.set_xlabel("Longitude (°)")
         ax.set_ylabel("Latitude (°)")
         ax.set_title(f"Himawari-9 SST {time_str}")
@@ -330,7 +352,8 @@ class HimawariDataProcessor:
         png_path = self.png_dir / f"{time_str}.png"
         plt.savefig(png_path, dpi=150, bbox_inches="tight")
         plt.close()
-        print(f"Saved PNG: {png_path}")
+        print(f"Saved PNG: {png_path} (range {vmin:.2f}–{vmax:.2f} K)")
+
 
 
     
@@ -588,7 +611,7 @@ class HimawariWorkflow:
         lonlims: Tuple[float, float],
         latlims: Tuple[float, float],
         tstep: int = 3600,
-        netrc_path: Path = Path(".netrc")
+        netrc_path: Path = Path(__file__).parent / ".netrc"
     ):
         """
         Run the complete data processing workflow: query -> download -> process -> merge -> analyze
@@ -882,7 +905,7 @@ class HimawariFileMonitor:
         check_results: dict,
         lonlims: Tuple[float, float],
         latlims: Tuple[float, float],
-        netrc_path: Path = Path(".netrc"),
+        netrc_path: Path = Path(__file__).parent / ".netrc",
         repair_nc: bool = True,
         repair_png: bool = True,
         max_concurrent: int = 3
@@ -981,7 +1004,7 @@ class HimawariFileMonitor:
         lonlims: Tuple[float, float],
         latlims: Tuple[float, float],
         tstep: int = 3600,
-        netrc_path: Path = Path(".netrc"),
+        netrc_path: Path = Path(__file__).parent / ".netrc",
         check_interval: int = 3600  # Check interval (seconds)
     ):
         """
@@ -1046,3 +1069,14 @@ def create_file_monitor(base_dir
     """
     processor = HimawariDataProcessor(base_dir)
     return HimawariFileMonitor(processor)
+
+processor = HimawariDataProcessor()
+
+processor.process_time_series(
+    timelims=("2025-03-01T00:00:00", "2025-03-01T12:00:00"),
+    lonlims=(111, 114),
+    latlims=(-25, -20),
+    tstep=3600,
+    temp_range=(28.0, 31.0),  # ← Adjust here
+    units="C"                 # "C" or "K"
+)
