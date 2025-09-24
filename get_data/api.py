@@ -33,6 +33,9 @@ from pathlib import Path
 from datetime import datetime
 import importlib
 import sys
+import subprocess
+import platform
+import os
 from typing import Dict, List, Optional, Any
 
 # Import Himawari processor (temporarily until full satellite API structure is ready)
@@ -55,6 +58,9 @@ class ParameterInfo(BaseModel):
     unit: str
     description: str
     file_types: list
+
+class OpenPathRequest(BaseModel):
+    path: str
 
 class ProcessingRequest(BaseModel):
     satellite: str
@@ -583,7 +589,7 @@ async def list_files(satellite: str, parameter: str, file_type: str):
             "file_type": file_type,
             "files": files,
             "total": len(files),
-            "directory": str(files_dir)
+            "directory": str(files_dir.absolute())  # 返回绝对路径而不是相对路径
         }
         
     except Exception as e:
@@ -646,6 +652,63 @@ async def download_nc_file(satellite: str, parameter: str, filename: str):
         }
         print(f"❌ Error downloading file: {error_details}")
         raise HTTPException(status_code=500, detail=f"Failed to download file: {str(e)}")
+
+@app.post("/api/v1/open-path")
+async def open_file_path(request: OpenPathRequest):
+    """Open a file path in the system's default file manager"""
+    try:
+        file_path = Path(request.path)
+        
+        # 安全检查：确保路径存在
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Path does not exist")
+        
+        # 如果是文件，获取其父目录
+        if file_path.is_file():
+            directory_path = file_path.parent
+        else:
+            directory_path = file_path
+        
+        # 根据操作系统选择合适的命令
+        system = platform.system().lower()
+        
+        if system == "windows":
+            # Windows: 使用explorer并选中文件
+            if file_path.is_file():
+                subprocess.run(["explorer", "/select,", str(file_path)], check=True)
+            else:
+                subprocess.run(["explorer", str(directory_path)], check=True)
+        elif system == "darwin":  # macOS
+            if file_path.is_file():
+                subprocess.run(["open", "-R", str(file_path)], check=True)
+            else:
+                subprocess.run(["open", str(directory_path)], check=True)
+        elif system == "linux":
+            # Linux: 尝试使用不同的文件管理器
+            file_managers = ["nautilus", "dolphin", "thunar", "pcmanfm", "nemo"]
+            success = False
+            for fm in file_managers:
+                try:
+                    if file_path.is_file():
+                        subprocess.run([fm, str(directory_path)], check=True)
+                    else:
+                        subprocess.run([fm, str(directory_path)], check=True)
+                    success = True
+                    break
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    continue
+            
+            if not success:
+                raise HTTPException(status_code=500, detail="No suitable file manager found")
+        else:
+            raise HTTPException(status_code=500, detail=f"Unsupported operating system: {system}")
+        
+        return {"message": "File path opened successfully", "path": str(file_path)}
+        
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to open file manager: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error opening path: {str(e)}")
 
 @app.get("/api/v1/satellites/{satellite}/{parameter}/stats/{filename}")
 async def get_data_stats(satellite: str, parameter: str, filename: str, target_time: str = None):
