@@ -539,7 +539,7 @@ def run_eumetview_example():
     # Configuration parameters
     layer_keys = ['sentinel3a_sst', 'sentinel3a_chl']
     region = (111, -25, 114, -20)  # Western Australia region
-    time_range = ('2025-03-01T00:00:00.000Z', '2025-03-01T12:00:00.000Z')
+    time_range = ('2025-08-10T00:00:00.000Z', datetime.utcnow().isoformat() + 'Z')
     
     # Create workflow instance
     workflow = EUMETViewWorkflow()

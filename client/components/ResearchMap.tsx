@@ -253,7 +253,11 @@ export function ResearchMap({
             } else {
               // 对于Sentinel-3，获取唯一的NC文件（包含所有时间范围数据）
               try {
-                const ncFiles = await getFiles(parameter, "nc");
+                if (!getFiles) {
+                  console.warn("getFiles function not available");
+                  ncFilename = getSentinel3FallbackFilename(parameter);
+                } else {
+                  const ncFiles = await getFiles(parameter, "nc");
                 if (ncFiles && ncFiles.length > 0) {
                   // Sentinel-3通常只有一个NC文件包含整个查询时间范围的数据
                   ncFilename = ncFiles[0].filename;
@@ -261,6 +265,7 @@ export function ResearchMap({
                 } else {
                   console.warn(`No NC files found for ${parameter}, using fallback`);
                   ncFilename = getSentinel3FallbackFilename(parameter);
+                }
                 }
               } catch (error) {
                 console.warn("Failed to get NC files list, using fallback:", error);

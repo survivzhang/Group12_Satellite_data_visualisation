@@ -30,8 +30,8 @@ export default function NingalooResearchApp() {
   ]);
 
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>({
-    start: new Date("2025-03-01T00:00:00Z"),
-    end: new Date("2025-03-01T12:00:00Z"),
+    start: new Date("2025-08-10T00:00:00Z"),
+    end: new Date(),
     granularity: "hours",
   });
 
