@@ -1073,11 +1073,12 @@ def create_file_monitor(base_dir
 
 processor = HimawariDataProcessor()
 
-processor.process_time_series(
-    timelims=("2025-08-10T00:00:00", datetime.utcnow().isoformat()),
-    lonlims=(111, 114),
-    latlims=(-25, -20),
-    tstep=3600,
-    temp_range=(28.0, 31.0),  # ← Adjust here
-    units="C"                 # "C" or "K"
-)
+# Commented out auto-execution to prevent automatic data download on API startup
+# processor.process_time_series(
+#     timelims=("2025-08-10T00:00:00", datetime.utcnow().isoformat()),
+#     lonlims=(111, 114),
+#     latlims=(-25, -20),
+#     tstep=3600,
+#     temp_range=(28.0, 31.0),  # ← Adjust here
+#     units="C"                 # "C" or "K"
+# )
