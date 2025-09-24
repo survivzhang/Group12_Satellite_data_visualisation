@@ -1,122 +1,122 @@
-# 🗺️ 交互式地图功能说明
+# 🗺️ Interactive Map Features
 
-## 🎉 新功能概述
+## 🎉 New Features Overview
 
-我们为卫星数据可视化系统添加了**三种地图显示模式**，用户可以根据需要自由切换：
+We have added **three map display modes** to the satellite data visualization system, allowing users to switch freely according to their needs:
 
-### 1. 📷 静态图模式 (Static View)
-- **原有功能**: 保持不变的PNG静态图显示
-- **特点**: 数据过滤、路径显示等所有现有功能完全保留
-- **优势**: 连续填充效果，接近科学可视化标准
+### 1. 📷 Static View Mode
+- **Original functionality**: Unchanged PNG static image display
+- **Features**: All existing functionality including data filtering and path display fully preserved
+- **Advantages**: Continuous fill effects, close to scientific visualization standards
 
-### 2. 📍 点交互模式 (Point Interactive)
-- **实现方式**: Leaflet + CircleMarker
-- **特点**: 每个数据点都是可点击的圆形标记
-- **交互性**: 点击查看精确数值、地图缩放平移
-- **性能**: 自动数据降采样(>50K点时)
+### 2. 📍 Point Interactive Mode
+- **Implementation**: Leaflet + CircleMarker
+- **Features**: Each data point is a clickable circular marker
+- **Interactivity**: Click to view precise values, map zoom and pan
+- **Performance**: Automatic data downsampling (when >50K points)
 
-### 3. 🎨 Canvas热力图模式 (Canvas Heatmap) - **新增核心功能**
-- **实现方式**: Canvas + 高斯扩散算法
-- **视觉效果**: 模拟matplotlib的连续填充效果
-- **性能优化**: GPU加速的Canvas渲染
-- **交互性**: 鼠标悬停显示数据详情
+### 3. 🎨 Canvas Heatmap Mode - **New Core Feature**
+- **Implementation**: Canvas + Gaussian diffusion algorithm
+- **Visual effects**: Simulates matplotlib's continuous fill effect
+- **Performance optimization**: GPU-accelerated Canvas rendering
+- **Interactivity**: Mouse hover displays data details
 
-## 🔧 技术实现详情
+## 🔧 Technical Implementation Details
 
-### Canvas热力图的核心算法
+### Core Algorithm for Canvas Heatmap
 
-1. **数据点扩散**:
+1. **Data Point Diffusion**:
    ```
-   每个NC数据点 → 高斯扩散到周围像素
-   扩散半径 = f(数据密度)
-   ```
-
-2. **自适应扩散半径**:
-   ```
-   高密度数据: 2像素扩散
-   中密度数据: 4-6像素扩散  
-   低密度数据: 8-12像素扩散
+   Each NC data point → Gaussian diffusion to surrounding pixels
+   Diffusion radius = f(data density)
    ```
 
-3. **高斯混合渲染**:
+2. **Adaptive Diffusion Radius**:
+   ```
+   High density data: 2 pixel diffusion
+   Medium density data: 4-6 pixel diffusion  
+   Low density data: 8-12 pixel diffusion
+   ```
+
+3. **Gaussian Mixing Rendering**:
    ```
    intensity = exp(-(distance²)/(2σ²))
-   颜色混合 = 加法混合模式
+   Color mixing = additive blending mode
    ```
 
-### 颜色映射策略
+### Color Mapping Strategy
 
-- **海表温度(SST)**: 蓝色(冷) → 绿色 → 红色(热)
-- **叶绿素(CHL)**: 深蓝 → 青色 → 绿色 → 黄色 → 红色
+- **Sea Surface Temperature (SST)**: Blue (cold) → Green → Red (hot)
+- **Chlorophyll (CHL)**: Dark blue → Cyan → Green → Yellow → Red
 
-## 🚀 使用方法
+## 🚀 Usage Instructions
 
-### 切换视图模式
+### Switching View Modes
 
-1. **从静态图切换**:
-   - 点击左下角 "Canvas Heatmap" 按钮 → Canvas热力图
-   - 点击左下角 "Point Interactive" 按钮 → 点交互模式
+1. **From Static View**:
+   - Click "Canvas Heatmap" button in bottom-left → Canvas heatmap
+   - Click "Point Interactive" button in bottom-left → Point interactive mode
 
-2. **在交互模式间切换**:
-   - 右上角的按钮可以在三种模式间自由切换
+2. **Switch Between Interactive Modes**:
+   - Buttons in top-right allow free switching between three modes
    - Static / Canvas / Points
 
-### 交互功能
+### Interactive Features
 
-- **Canvas热力图**:
-  - 🖱️ 鼠标悬停: 显示最近数据点的详细信息
-  - 🔍 地图缩放: 实时重新渲染热力图
-  - 📱 平移拖拽: 流畅的地图导航
+- **Canvas Heatmap**:
+  - 🖱️ Mouse hover: Display detailed information of nearest data point
+  - 🔍 Map zoom: Real-time re-render heatmap
+  - 📱 Pan and drag: Smooth map navigation
 
-- **点交互模式**:
-  - 📍 点击数据点: 弹出详细信息窗口
-  - 🗺️ 完整地图控制: 缩放、平移、图层切换
+- **Point Interactive Mode**:
+  - 📍 Click data point: Pop-up detailed information window
+  - 🗺️ Full map control: Zoom, pan, layer switching
 
-## 📊 性能优化
+## 📊 Performance Optimization
 
-### 数据传输优化
-- **自动降采样**: 超过50,000点自动降采样
-- **智能阈值**: 保持数据分布特征的同时减少传输量
-- **压缩传输**: 只传输有效数据点(排除NaN值)
+### Data Transfer Optimization
+- **Automatic downsampling**: Automatic downsampling when exceeding 50,000 points
+- **Intelligent thresholds**: Reduce transfer volume while maintaining data distribution characteristics
+- **Compressed transfer**: Only transfer valid data points (excluding NaN values)
 
-### 渲染优化  
-- **Canvas加速**: 比DOM操作快10-100倍
-- **高斯缓存**: 预计算高斯核函数
-- **增量渲染**: 只在地图变化时重新渲染
+### Rendering Optimization  
+- **Canvas acceleration**: 10-100 times faster than DOM operations
+- **Gaussian caching**: Pre-computed Gaussian kernel functions
+- **Incremental rendering**: Re-render only when map changes
 
-## 🎯 适用场景
+## 🎯 Use Cases
 
-### Canvas热力图最适合:
-- ✅ 科学数据可视化(连续分布效果)
-- ✅ 大数据集展示(性能优秀)
-- ✅ 整体趋势分析
-- ✅ 发布演示(美观专业)
+### Canvas Heatmap Best For:
+- ✅ Scientific data visualization (continuous distribution effects)
+- ✅ Large dataset display (excellent performance)
+- ✅ Overall trend analysis
+- ✅ Presentation purposes (beautiful and professional)
 
-### 点交互模式最适合:
-- ✅ 精确数据查询
-- ✅ 数据质量检查
-- ✅ 逐点分析
-- ✅ 数据探索
+### Point Interactive Mode Best For:
+- ✅ Precise data queries
+- ✅ Data quality checking
+- ✅ Point-by-point analysis
+- ✅ Data exploration
 
-### 静态图模式最适合:
-- ✅ 数据过滤分析
-- ✅ 历史记录保存
-- ✅ 批量处理
-- ✅ 报告生成
+### Static Image Mode Best For:
+- ✅ Data filtering analysis
+- ✅ Historical record keeping
+- ✅ Batch processing
+- ✅ Report generation
 
-## 🔌 API端点
+## 🔌 API Endpoints
 
-新增后端API端点:
+New backend API endpoint:
 ```
 GET /api/v1/satellites/{satellite}/{parameter}/data/{filename}
 ```
 
-**参数**:
-- `target_time`: 目标时间(ISO格式)
-- `min_value`: 最小值过滤(可选)
-- `max_value`: 最大值过滤(可选)
+**Parameters**:
+- `target_time`: Target time (ISO format)
+- `min_value`: Minimum value filter (optional)
+- `max_value`: Maximum value filter (optional)
 
-**返回**:
+**Returns**:
 ```json
 {
   "satellite": "himawari",
@@ -130,17 +130,17 @@ GET /api/v1/satellites/{satellite}/{parameter}/data/{filename}
 }
 ```
 
-## 🎨 视觉对比
+## 🎨 Visual Comparison
 
-| 模式 | 视觉效果 | 性能 | 交互性 | 适用场景 |
-|------|----------|------|--------|----------|
-| 静态图 | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐ | 分析、过滤 |
-| Canvas热力图 | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | 可视化、演示 |
-| 点交互 | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 探索、查询 |
+| Mode | Visual Effects | Performance | Interactivity | Use Cases |
+|------|----------------|-------------|---------------|-----------|
+| Static Image | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐ | Analysis, filtering |
+| Canvas Heatmap | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | Visualization, presentation |
+| Point Interactive | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | Exploration, queries |
 
-## 🛠️ 依赖项
+## 🛠️ Dependencies
 
-新增的npm包:
+New npm packages:
 ```json
 {
   "leaflet": "^1.9.x",
@@ -149,29 +149,27 @@ GET /api/v1/satellites/{satellite}/{parameter}/data/{filename}
 }
 ```
 
-## 🔍 故障排除
+## 🔍 Troubleshooting
 
-### 常见问题
+### Common Issues
 
-1. **地图不显示**:
-   - 检查Leaflet CSS是否正确导入
-   - 确认端口8000后端API正在运行
+1. **Map not displaying**:
+   - Check if Leaflet CSS is correctly imported
+   - Confirm backend API is running on port 8000
 
-2. **数据点不渲染**:
-   - 检查NC文件是否存在
-   - 验证API响应中的data_points数组
+2. **Data points not rendering**:
+   - Check if NC files exist
+   - Verify data_points array in API response
 
-3. **性能问题**:
-   - 大数据集会自动降采样
-   - Canvas渲染比DOM快很多倍
+3. **Performance issues**:
+   - Large datasets will be automatically downsampled
+   - Canvas rendering is many times faster than DOM
 
-### 调试技巧
-- 打开浏览器开发者工具查看API请求
-- 检查Console日志了解数据加载状态
-- Network面板监控数据传输大小
+### Debugging Tips
+- Open browser developer tools to check API requests
+- Check Console logs to understand data loading status
+- Monitor data transfer size in Network panel
 
 ---
 
-🎊 **恭喜！您现在拥有了功能完整的三合一卫星数据可视化系统！**
-
-
+🎊 **Congratulations! You now have a fully functional three-in-one satellite data visualization system!**
