@@ -446,7 +446,7 @@ class HimawariAPI(BaseSatelliteAPI):
         """Auto monitor and repair"""
         # Check for missing files and start repair if needed
         check_results = self.file_monitor.check_file_completeness(
-            timelims=('2025-08-10T00:00:00', datetime.utcnow().isoformat()),
+            timelims=('2025-09-12T00:00:00', datetime.utcnow().isoformat()),
             tstep=3600
         )
         
@@ -463,7 +463,7 @@ class HimawariAPI(BaseSatelliteAPI):
         else:
             # Start repair task
             repair_data = {
-                "start_time": '2025-08-10T00:00:00',
+                "start_time": '2025-09-12T00:00:00',
                 "end_time": datetime.utcnow().isoformat(),
                 "west_lon": 111.0,
                 "east_lon": 114.0,

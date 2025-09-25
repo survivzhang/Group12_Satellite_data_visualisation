@@ -320,6 +320,8 @@ class Sentinel3API(BaseSatelliteAPI):
                 return await self._auto_check_and_regenerate(data)
             elif path == "check-freshness" and data:
                 return await self._check_data_freshness(data)
+            elif path == "incremental-update" and data:
+                return await self._run_incremental_update(data, background_tasks)
             elif path.startswith("describe-coverage/"):
                 layer_key = path.split("/", 1)[1]
                 return await self._describe_coverage(layer_key)
@@ -338,12 +340,29 @@ class Sentinel3API(BaseSatelliteAPI):
             self.tasks[task_id]["message"] = "Processing Sentinel-3 data..."
             self.tasks[task_id]["progress"] = 10
             
-            # Run the actual processing using the workflow
+            # Format time strings for EUMETView API (remove microseconds)
+            from datetime import datetime
+            
+            # Parse and reformat start_time
+            try:
+                start_dt = datetime.fromisoformat(request.start_time.replace('Z', '+00:00'))
+                formatted_start_time = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            except:
+                formatted_start_time = request.start_time
+            
+            # Parse and reformat end_time
+            try:
+                end_dt = datetime.fromisoformat(request.end_time.replace('Z', '+00:00'))
+                formatted_end_time = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            except:
+                formatted_end_time = request.end_time
+            
+            # Run the actual processing using the workflow with incremental download
             await asyncio.to_thread(
                 self.workflow.run_complete_workflow,
                 layer_keys=layer_keys,
                 region=(request.west_lon, request.south_lat, request.east_lon, request.north_lat),
-                time_range=(request.start_time, request.end_time),
+                time_range=(formatted_start_time, formatted_end_time),
                 consumer_key=request.consumer_key,
                 consumer_secret=request.consumer_secret
             )
@@ -656,6 +675,73 @@ class Sentinel3API(BaseSatelliteAPI):
         except Exception as e:
             return {"error": str(e)}
     
+    async def _run_incremental_update(self, data: Dict[str, Any], background_tasks: BackgroundTasks) -> Dict[str, Any]:
+        """Run incremental update for all Sentinel-3 parameters"""
+        try:
+            import uuid
+            task_id = str(uuid.uuid4())
+            
+            # Store task info
+            self.tasks[task_id] = {
+                "status": "pending",
+                "message": "Incremental update task queued",
+                "progress": 0,
+                "satellite": "sentinel3",
+                "layer_keys": ['sentinel3a_sst', 'sentinel3a_chl', 'sentinel3b_sst', 'sentinel3b_chl']
+            }
+            
+            # Add background task
+            background_tasks.add_task(
+                self._run_incremental_update_task,
+                task_id,
+                data
+            )
+            
+            return {
+                "task_id": task_id,
+                "status": "pending",
+                "message": "Incremental update started for all Sentinel-3 parameters",
+                "satellite": "sentinel3"
+            }
+            
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def _run_incremental_update_task(self, task_id: str, data: Dict[str, Any]):
+        """Background task for incremental update"""
+        try:
+            # Update status
+            self.tasks[task_id]["status"] = "processing"
+            self.tasks[task_id]["message"] = "Running incremental update..."
+            self.tasks[task_id]["progress"] = 10
+            
+            # Get region from data or use default
+            region = (
+                data.get("west_lon", 111.0),
+                data.get("south_lat", -25.0),
+                data.get("east_lon", 114.0),
+                data.get("north_lat", -20.0)
+            )
+            
+            # Run incremental update
+            await asyncio.to_thread(
+                self.workflow.run_incremental_update,
+                region=region,
+                consumer_key=data.get("consumer_key"),
+                consumer_secret=data.get("consumer_secret")
+            )
+            
+            # Mark as completed
+            self.tasks[task_id]["status"] = "completed"
+            self.tasks[task_id]["message"] = "Incremental update completed successfully"
+            self.tasks[task_id]["progress"] = 100
+            
+        except Exception as e:
+            # Mark as failed
+            self.tasks[task_id]["status"] = "failed"
+            self.tasks[task_id]["message"] = f"Incremental update failed: {str(e)}"
+            self.tasks[task_id]["progress"] = 0
+    
     async def _get_test_endpoints(self) -> Dict[str, Any]:
         """Get test endpoints information"""
         return {
@@ -669,7 +755,8 @@ class Sentinel3API(BaseSatelliteAPI):
                 "GET /test-endpoints": "This test page",
                 "POST /check-file": "Check file status (requires nc_file_path in JSON body)",
                 "POST /regenerate-pngs": "Regenerate PNGs (requires nc_file_path in JSON body)",
-                "POST /auto-check-regenerate": "Auto check and regenerate (requires nc_file_path in JSON body)"
+                "POST /auto-check-regenerate": "Auto check and regenerate (requires nc_file_path in JSON body)",
+                "POST /incremental-update": "Run incremental update for all Sentinel-3 parameters"
             },
             "example_usage": {
                 "check_file": {
