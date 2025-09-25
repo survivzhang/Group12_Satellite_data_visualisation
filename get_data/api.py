@@ -749,7 +749,7 @@ async def get_data_stats(satellite: str, parameter: str, filename: str, target_t
             # Handle multi-time data using satellite-specific modules
             if len(data_var.shape) > 2:  # Multi-time data
                 if satellite in ['sentinel3a', 'sentinel3b']:
-                    # Use Sentinel-3 specific data processing
+                    # Use Sentinel-3 specific data processing with static image matching logic
                     sentinel3_api = get_sentinel3_api()
                     time_coords = ds['time'].values
                     data = sentinel3_api.get_sentinel3_data(data_var, target_time, time_coords)
@@ -862,7 +862,7 @@ async def get_filtered_image(
             # Handle multi-time data using satellite-specific modules
             if len(data_var.shape) > 2:  # Multi-time data
                 if satellite in ['sentinel3a', 'sentinel3b']:
-                    # Use Sentinel-3 specific data processing
+                    # Use Sentinel-3 specific data processing with static image matching logic
                     sentinel3_api = get_sentinel3_api()
                     time_coords = ds['time'].values
                     data = sentinel3_api.get_sentinel3_data(data_var, target_time, time_coords)
@@ -1044,7 +1044,7 @@ async def get_nc_data_for_map(
             # Handle multi-time data using satellite-specific modules
             if len(data_var.shape) > 2:  # Multi-time data
                 if satellite in ['sentinel3a', 'sentinel3b']:
-                    # Use Sentinel-3 specific data processing
+                    # Use Sentinel-3 specific data processing with static image matching logic
                     sentinel3_api = get_sentinel3_api()
                     time_coords = ds['time'].values
                     data = sentinel3_api.get_sentinel3_data(data_var, target_time, time_coords)
@@ -1237,7 +1237,7 @@ async def get_nc_grid_data_for_heatmap(
             # Handle multi-time data using satellite-specific modules
             if len(data_var.shape) > 2:  # Multi-time data
                 if satellite in ['sentinel3a', 'sentinel3b']:
-                    # Use Sentinel-3 specific data processing
+                    # Use Sentinel-3 specific data processing with static image matching logic
                     sentinel3_api = get_sentinel3_api()
                     time_coords = ds['time'].values
                     data = sentinel3_api.get_sentinel3_data(data_var, target_time, time_coords)

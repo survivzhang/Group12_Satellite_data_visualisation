@@ -444,7 +444,7 @@ export function CanvasInteractiveMap({
       const targetTime = timeRange.start.toISOString();
       const apiUrl = `http://localhost:8000/api/v1/satellites/${satelliteMapping.satellite}/${satelliteMapping.parameter}/simple-data/${ncFilename}?target_time=${encodeURIComponent(targetTime)}`;
 
-      console.log(`Loading simple data for canvas from: ${apiUrl}`);
+      console.log(`Loading simple data for canvas from: ${apiUrl} (Sentinel-3 will use closest time <= target)`);
 
       const response = await fetch(apiUrl);
       if (!response.ok) {
