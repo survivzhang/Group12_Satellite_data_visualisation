@@ -825,7 +825,7 @@ class Sentinel3API(BaseSatelliteAPI):
         return None
 
     def get_sentinel3_data(self, data_var, target_time=None, time_coords=None):
-        """Get data for Sentinel-3 with proper time point selection logic"""
+        """Get data for Sentinel-3 with proper time point selection logic - matches static image logic"""
         import numpy as np
         
         # Handle both xarray and numpy array inputs
@@ -837,22 +837,41 @@ class Sentinel3API(BaseSatelliteAPI):
         # Handle multi-time data (like Sentinel-3)
         if len(data_array.shape) > 2:  # Multi-time data
             if target_time and time_coords is not None:
-                # Try to find the closest time point to target_time
+                # Find the most recent time point BEFORE or equal to target_time (matches static image logic)
                 from datetime import datetime
                 try:
                     target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
-                    time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
-                    closest_time_idx = np.argmin(time_diffs)
-                    data = data_array[closest_time_idx]
+                    target_timestamp = target_dt.timestamp()
                     
-                    # Check if the closest time point has valid data
-                    valid_data = data[~np.isnan(data)]
-                    if len(valid_data) == 0:
-                        # If closest time point has no valid data, use first valid time point
-                        print(f"Closest time point has no valid data, using first valid time point...")
-                        return self.find_first_valid_timepoint(data_var)
-                    else:
+                    # Convert time coordinates to timestamps and find valid candidates
+                    valid_candidates = []
+                    for i, time_coord in enumerate(time_coords):
+                        time_timestamp = np.datetime64(time_coord).astype('datetime64[s]').astype(float)
+                        # Only consider times that are <= target_time (same as static image logic)
+                        if time_timestamp <= target_timestamp:
+                            # Check if this time slice has valid data
+                            time_slice_data = data_array[i]
+                            valid_data = time_slice_data[~np.isnan(time_slice_data)]
+                            if len(valid_data) > 0:  # Has valid data
+                                time_diff = target_timestamp - time_timestamp
+                                valid_candidates.append((i, time_diff, time_coord))
+                    
+                    if valid_candidates:
+                        # Sort by time difference (smallest first = most recent before target_time)
+                        valid_candidates.sort(key=lambda x: x[1])
+                        best_idx = valid_candidates[0][0]
+                        best_time = valid_candidates[0][2]
+                        data = data_array[best_idx]
+                        
+                        print(f"Sentinel-3 Canvas: Selected time slice at index {best_idx} "
+                              f"(time: {best_time}) for target {target_time}")
+                        
                         return data
+                    else:
+                        # No valid data found before target_time, fallback to first valid
+                        print(f"No valid data found before target_time {target_time}, using first valid time point...")
+                        return self.find_first_valid_timepoint(data_var)
+                        
                 except Exception as e:
                     print(f"Error parsing target_time {target_time}: {e}")
                     # Fallback to first valid time point
