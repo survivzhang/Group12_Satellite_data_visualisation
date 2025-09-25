@@ -106,8 +106,8 @@ export function useDataStore(): DataStore {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  start_time: "2025-03-01T00:00:00",
-                  end_time: "2025-03-01T12:00:00",
+                  start_time: "2025-08-10T00:00:00",
+                  end_time: new Date().toISOString(),
                   time_step_hours: 1,
                   check_nc: true,
                   check_png: true,
@@ -242,8 +242,8 @@ export function useDataStore(): DataStore {
                 body: JSON.stringify({
                   satellite: satellite,
                   parameter: "sst", // 先下载SST数据
-                  start_time: "2025-03-01T00:00:00.000Z",
-                  end_time: "2025-03-01T12:00:00.000Z",
+                  start_time: "2025-08-10T00:00:00.000Z",
+                  end_time: new Date().toISOString(),
                   west_lon: 111.0,
                   east_lon: 114.0,
                   south_lat: -25.0,
@@ -375,8 +375,8 @@ export function useDataStore(): DataStore {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  start_time: "2025-03-01T00:00:00",
-                  end_time: "2025-03-01T12:00:00",
+                  start_time: "2025-08-10T00:00:00",
+                  end_time: new Date().toISOString(),
                   time_step_hours: 1,
                   check_nc: true,
                   check_png: true,

@@ -30,8 +30,8 @@ export default function NingalooResearchApp() {
   ]);
 
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>({
-    start: new Date("2025-03-01T00:00:00Z"),
-    end: new Date("2025-03-01T12:00:00Z"),
+    start: new Date("2025-08-10T00:00:00Z"),
+    end: new Date("2025-08-10T00:00:00Z"), // 初始值，避免水合错误
     granularity: "hours",
   });
 
@@ -84,7 +84,20 @@ export default function NingalooResearchApp() {
         });
       } catch (error) {
         console.error("Failed to parse stored time range:", error);
+        // 如果解析失败，设置默认时间范围
+        setSelectedTimeRange({
+          start: new Date("2025-08-10T00:00:00Z"),
+          end: new Date(),
+          granularity: "hours",
+        });
       }
+    } else {
+      // 如果没有存储的时间范围，设置默认时间范围
+      setSelectedTimeRange({
+        start: new Date("2025-08-10T00:00:00Z"),
+        end: new Date(),
+        granularity: "hours",
+      });
     }
   }, []);
 

@@ -36,9 +36,9 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
   const currentGranularity =
     granularityOptions.find((g) => g.id === timeRange.granularity) || granularityOptions[3];
 
-  // Fixed date range: March 1, 2025 (12 hours for testing)
-  const fixedStartDate = new Date("2025-03-01T00:00:00Z");
-  const fixedEndDate = new Date("2025-03-01T12:00:00Z");
+  // Fixed date range: August 10, 2025 to now
+  const fixedStartDate = new Date("2025-08-10T00:00:00Z");
+  const fixedEndDate = new Date();
   const totalDuration = fixedEndDate.getTime() - fixedStartDate.getTime();
 
   // Auto-play functionality
@@ -186,19 +186,17 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
           <div>
             <div className="font-medium text-white">{formatDateRange()}</div>
             <div className="text-sm text-cyan-200">
-              Viewing {currentGranularity.label.toLowerCase()} resolution • March 1, 2025 (Local Time)
+              Viewing {currentGranularity.label.toLowerCase()} resolution • August 10, 2025 to now (Local Time)
             </div>
           </div>
         </div>
         <Badge variant="outline" className="bg-cyan-600/20 border-cyan-400 text-cyan-100">
           {(() => {
             const currentTime = getCurrentDateTime();
-            const startLocal = new Date("2025-03-01T00:00:00Z");
-            const endLocal = new Date("2025-03-01T12:00:00Z");
-            const totalHours = 12;
-            const currentHour =
-              Math.floor((currentTime.getTime() - fixedStartDate.getTime()) / (1000 * 60 * 60)) + 1;
-            return `Hour ${Math.min(currentHour, totalHours)} of ${totalHours}`;
+            const totalDuration = fixedEndDate.getTime() - fixedStartDate.getTime();
+            const currentDuration = currentTime.getTime() - fixedStartDate.getTime();
+            const progressPercent = Math.round((currentDuration / totalDuration) * 100);
+            return `Progress: ${Math.min(progressPercent, 100)}%`;
           })()}
         </Badge>
       </div>
@@ -221,12 +219,13 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
           {/* Timeline markers */}
           <div className="absolute -bottom-6 left-0 right-0 flex justify-between text-xs text-cyan-200">
             {Array.from({ length: 7 }, (_, i) => {
-              const utcTime = new Date("2025-03-01T00:00:00Z");
-              utcTime.setUTCHours(i * 2);
-              const localTime = utcTime.toLocaleTimeString("en-US", {
+              const totalDuration = fixedEndDate.getTime() - fixedStartDate.getTime();
+              const markerTime = new Date(fixedStartDate.getTime() + (totalDuration * i) / 6);
+              const localTime = markerTime.toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
                 hour: "2-digit",
                 minute: "2-digit",
-                hour12: false,
               });
               return <span key={i}>{localTime}</span>;
             })}

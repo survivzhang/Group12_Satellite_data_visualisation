@@ -8,6 +8,7 @@ Himawari-9 satellite sea surface temperature data.
 import os
 import time
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Tuple, Optional, List
 
@@ -695,7 +696,7 @@ def run_himawari_workflow_example():
     """Run an example Himawari data processing workflow"""
     
     # Configuration parameters
-    timelims = ("2025-03-01T00:00:00", "2025-03-01T12:00:00")
+    timelims = ("2025-08-10T00:00:00", datetime.utcnow().isoformat())
     lonlims = (111, 114)  # Western Australia region
     latlims = (-25, -20)
     tstep = 3600  # 1 hour interval
@@ -1072,11 +1073,12 @@ def create_file_monitor(base_dir
 
 processor = HimawariDataProcessor()
 
-processor.process_time_series(
-    timelims=("2025-03-01T00:00:00", "2025-03-01T12:00:00"),
-    lonlims=(111, 114),
-    latlims=(-25, -20),
-    tstep=3600,
-    temp_range=(28.0, 31.0),  # ← Adjust here
-    units="C"                 # "C" or "K"
-)
+# Commented out auto-execution to prevent automatic data download on API startup
+# processor.process_time_series(
+#     timelims=("2025-08-10T00:00:00", datetime.utcnow().isoformat()),
+#     lonlims=(111, 114),
+#     latlims=(-25, -20),
+#     tstep=3600,
+#     temp_range=(28.0, 31.0),  # ← Adjust here
+#     units="C"                 # "C" or "K"
+# )
