@@ -33,6 +33,9 @@ from pathlib import Path
 from datetime import datetime
 import importlib
 import sys
+import subprocess
+import platform
+import os
 from typing import Dict, List, Optional, Any
 
 # Import Himawari processor (temporarily until full satellite API structure is ready)
@@ -55,6 +58,9 @@ class ParameterInfo(BaseModel):
     unit: str
     description: str
     file_types: list
+
+class OpenPathRequest(BaseModel):
+    path: str
 
 class ProcessingRequest(BaseModel):
     satellite: str
@@ -583,7 +589,7 @@ async def list_files(satellite: str, parameter: str, file_type: str):
             "file_type": file_type,
             "files": files,
             "total": len(files),
-            "directory": str(files_dir)
+            "directory": str(files_dir.absolute())  # 返回绝对路径而不是相对路径
         }
         
     except Exception as e:
@@ -646,6 +652,63 @@ async def download_nc_file(satellite: str, parameter: str, filename: str):
         }
         print(f"❌ Error downloading file: {error_details}")
         raise HTTPException(status_code=500, detail=f"Failed to download file: {str(e)}")
+
+@app.post("/api/v1/open-path")
+async def open_file_path(request: OpenPathRequest):
+    """Open a file path in the system's default file manager"""
+    try:
+        file_path = Path(request.path)
+        
+        # 安全检查：确保路径存在
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Path does not exist")
+        
+        # 如果是文件，获取其父目录
+        if file_path.is_file():
+            directory_path = file_path.parent
+        else:
+            directory_path = file_path
+        
+        # 根据操作系统选择合适的命令
+        system = platform.system().lower()
+        
+        if system == "windows":
+            # Windows: 使用explorer并选中文件
+            if file_path.is_file():
+                subprocess.run(["explorer", "/select,", str(file_path)], check=True)
+            else:
+                subprocess.run(["explorer", str(directory_path)], check=True)
+        elif system == "darwin":  # macOS
+            if file_path.is_file():
+                subprocess.run(["open", "-R", str(file_path)], check=True)
+            else:
+                subprocess.run(["open", str(directory_path)], check=True)
+        elif system == "linux":
+            # Linux: 尝试使用不同的文件管理器
+            file_managers = ["nautilus", "dolphin", "thunar", "pcmanfm", "nemo"]
+            success = False
+            for fm in file_managers:
+                try:
+                    if file_path.is_file():
+                        subprocess.run([fm, str(directory_path)], check=True)
+                    else:
+                        subprocess.run([fm, str(directory_path)], check=True)
+                    success = True
+                    break
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    continue
+            
+            if not success:
+                raise HTTPException(status_code=500, detail="No suitable file manager found")
+        else:
+            raise HTTPException(status_code=500, detail=f"Unsupported operating system: {system}")
+        
+        return {"message": "File path opened successfully", "path": str(file_path)}
+        
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(status_code=500, detail=f"Failed to open file manager: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error opening path: {str(e)}")
 
 @app.get("/api/v1/satellites/{satellite}/{parameter}/stats/{filename}")
 async def get_data_stats(satellite: str, parameter: str, filename: str, target_time: str = None):
@@ -934,6 +997,579 @@ async def get_filtered_image(
         }
         print(f"❌ Error generating filtered image: {error_details}")
         raise HTTPException(status_code=500, detail=f"Failed to generate filtered image: {str(e)}")
+
+@app.get("/api/v1/satellites/{satellite}/{parameter}/data/{filename}")
+async def get_nc_data_for_map(
+    satellite: str, 
+    parameter: str, 
+    filename: str,
+    target_time: str = None,
+    min_value: Optional[float] = None,
+    max_value: Optional[float] = None
+):
+    """Get NetCDF data in JSON format for interactive mapping"""
+    if satellite not in SATELLITES:
+        raise HTTPException(status_code=404, detail=f"Satellite '{satellite}' not found")
+    
+    try:
+        import xarray as xr
+        import numpy as np
+        from pathlib import Path
+        
+        # Unified directory structure
+        base_data_dir = Path("data")
+        file_path = base_data_dir / satellite / parameter / "nc" / filename
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+        
+        # Read the NetCDF file
+        with xr.open_dataset(file_path, engine="netcdf4") as ds:
+            # Find the data variable
+            data_var = None
+            if satellite in ['sentinel3a', 'sentinel3b']:
+                # Use Sentinel-3 specific variable lookup
+                sentinel3_api = get_sentinel3_api()
+                data_var = sentinel3_api.find_data_variable(ds, parameter)
+            else:
+                # Use general variable lookup for other satellites
+                for var_name in ["sea_surface_temperature"]:
+                    if var_name in ds.data_vars:
+                        data_var = ds[var_name]
+                        break
+            
+            if data_var is None:
+                raise HTTPException(status_code=400, detail="No data variable found in file")
+            
+            # Handle multi-time data using satellite-specific modules
+            if len(data_var.shape) > 2:  # Multi-time data
+                if satellite in ['sentinel3a', 'sentinel3b']:
+                    # Use Sentinel-3 specific data processing
+                    sentinel3_api = get_sentinel3_api()
+                    time_coords = ds['time'].values
+                    data = sentinel3_api.get_sentinel3_data(data_var, target_time, time_coords)
+                else:
+                    # For other satellites, use general target_time logic
+                    if target_time:
+                        from datetime import datetime
+                        try:
+                            target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
+                            time_coords = ds['time'].values
+                            time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
+                            closest_time_idx = np.argmin(time_diffs)
+                            data = data_var.values[closest_time_idx]
+                            
+                            # Check if the closest time point has valid data
+                            valid_data = data[~np.isnan(data)]
+                            if len(valid_data) == 0:
+                                # If closest time point has no valid data, try other time points
+                                print(f"Closest time point has no valid data, trying other time points...")
+                                data = find_first_valid_timepoint(data_var)
+                        except Exception as e:
+                            data = find_first_valid_timepoint(data_var) # Fallback to first valid time point
+                    else:
+                        data = find_first_valid_timepoint(data_var) # Default to first valid time point
+            else:
+                data = data_var.values # Single time data
+            
+            # Get coordinates
+            lon_name = None
+            lat_name = None
+            for coord in ["lon", "longitude"]:
+                if coord in ds.coords:
+                    lon_name = coord
+                    break
+            for coord in ["lat", "latitude"]:
+                if coord in ds.coords:
+                    lat_name = coord
+                    break
+            
+            if not lon_name or not lat_name:
+                raise HTTPException(status_code=400, detail="Coordinate variables not found")
+            
+            # Get coordinates
+            lons = ds[lon_name].values
+            lats = ds[lat_name].values
+            
+            # Squeeze data to remove single dimensions
+            data = np.squeeze(data)
+            lons = np.squeeze(lons)
+            lats = np.squeeze(lats)
+            
+            # Apply range filtering if specified
+            if min_value is not None or max_value is not None:
+                mask = np.ones_like(data, dtype=bool)
+                if min_value is not None:
+                    mask &= (data >= min_value)
+                if max_value is not None:
+                    mask &= (data <= max_value)
+                # Set values outside range to NaN
+                data = np.where(mask, data, np.nan)
+            
+            # Prepare coordinates based on data dimensions
+            if lons.ndim == 1 and lats.ndim == 1:
+                # 1D coordinates - create meshgrid
+                lon_grid, lat_grid = np.meshgrid(lons, lats)
+            else:
+                # 2D coordinates
+                lon_grid, lat_grid = lons, lats
+            
+            # Convert to lists and handle NaN values
+            data_points = []
+            
+            # Downsample for performance if dataset is too large
+            max_points = 50000  # Limit for performance
+            height, width = data.shape
+            total_points = height * width
+            
+            if total_points > max_points:
+                # Calculate downsampling factor
+                downsample_factor = int(np.sqrt(total_points / max_points)) + 1
+                data = data[::downsample_factor, ::downsample_factor]
+                lon_grid = lon_grid[::downsample_factor, ::downsample_factor]
+                lat_grid = lat_grid[::downsample_factor, ::downsample_factor]
+            
+            # Extract data points
+            for i in range(data.shape[0]):
+                for j in range(data.shape[1]):
+                    value = data[i, j]
+                    if not np.isnan(value):
+                        data_points.append({
+                            "lat": float(lat_grid[i, j]),
+                            "lon": float(lon_grid[i, j]),
+                            "value": float(value)
+                        })
+            
+            # Calculate data statistics
+            valid_values = [p["value"] for p in data_points]
+            if valid_values:
+                data_min = min(valid_values)
+                data_max = max(valid_values)
+                data_mean = sum(valid_values) / len(valid_values)
+            else:
+                data_min = data_max = data_mean = 0
+            
+            return {
+                "satellite": satellite,
+                "parameter": parameter,
+                "filename": filename,
+                "data_points": data_points,
+                "bounds": {
+                    "north": float(np.max(lat_grid)),
+                    "south": float(np.min(lat_grid)),
+                    "east": float(np.max(lon_grid)),
+                    "west": float(np.min(lon_grid))
+                },
+                "statistics": {
+                    "min": data_min,
+                    "max": data_max,
+                    "mean": data_mean,
+                    "count": len(data_points),
+                    "units": get_parameter_units(parameter, satellite)
+                },
+                "metadata": {
+                    "downsampled": total_points > max_points,
+                    "downsample_factor": downsample_factor if total_points > max_points else 1,
+                    "original_size": total_points,
+                    "processed_size": len(data_points)
+                }
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_details = {
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "satellite": satellite,
+            "parameter": parameter,
+            "filename": filename
+        }
+        print(f"❌ Error getting NC data for map: {error_details}")
+        raise HTTPException(status_code=500, detail=f"Failed to get NC data: {str(e)}")
+
+@app.get("/api/v1/satellites/{satellite}/{parameter}/grid-data/{filename}")
+async def get_nc_grid_data_for_heatmap(
+    satellite: str, 
+    parameter: str, 
+    filename: str,
+    target_time: str = None,
+    min_value: Optional[float] = None,
+    max_value: Optional[float] = None,
+    max_grid_size: int = 200
+):
+    """Get NetCDF data as a regular grid for heatmap visualization - mimics matplotlib's pcolormesh"""
+    if satellite not in SATELLITES:
+        raise HTTPException(status_code=404, detail=f"Satellite '{satellite}' not found")
+    
+    try:
+        import xarray as xr
+        import numpy as np
+        from pathlib import Path
+        from scipy.interpolate import griddata
+        
+        # Unified directory structure
+        base_data_dir = Path("data")
+        file_path = base_data_dir / satellite / parameter / "nc" / filename
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+        
+        # Read the NetCDF file
+        with xr.open_dataset(file_path, engine="netcdf4") as ds:
+            # Find the data variable
+            data_var = None
+            if satellite in ['sentinel3a', 'sentinel3b']:
+                # Use Sentinel-3 specific variable lookup
+                sentinel3_api = get_sentinel3_api()
+                data_var = sentinel3_api.find_data_variable(ds, parameter)
+            else:
+                # Use general variable lookup for other satellites
+                for var_name in ["sea_surface_temperature"]:
+                    if var_name in ds.data_vars:
+                        data_var = ds[var_name]
+                        break
+            
+            if data_var is None:
+                raise HTTPException(status_code=400, detail="No data variable found in file")
+            
+            # Handle multi-time data using satellite-specific modules
+            if len(data_var.shape) > 2:  # Multi-time data
+                if satellite in ['sentinel3a', 'sentinel3b']:
+                    # Use Sentinel-3 specific data processing
+                    sentinel3_api = get_sentinel3_api()
+                    time_coords = ds['time'].values
+                    data = sentinel3_api.get_sentinel3_data(data_var, target_time, time_coords)
+                else:
+                    # For other satellites, use general target_time logic
+                    if target_time:
+                        from datetime import datetime
+                        try:
+                            target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
+                            time_coords = ds['time'].values
+                            time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
+                            closest_time_idx = np.argmin(time_diffs)
+                            data = data_var.values[closest_time_idx]
+                            
+                            # Check if the closest time point has valid data
+                            valid_data = data[~np.isnan(data)]
+                            if len(valid_data) == 0:
+                                print(f"Closest time point has no valid data, trying other time points...")
+                                data = find_first_valid_timepoint(data_var)
+                        except Exception as e:
+                            data = find_first_valid_timepoint(data_var) # Fallback to first valid time point
+                    else:
+                        data = find_first_valid_timepoint(data_var) # Default to first valid time point
+            else:
+                data = data_var.values # Single time data
+            
+            # Get coordinates
+            lon_name = None
+            lat_name = None
+            for coord in ["lon", "longitude"]:
+                if coord in ds.coords:
+                    lon_name = coord
+                    break
+            for coord in ["lat", "latitude"]:
+                if coord in ds.coords:
+                    lat_name = coord
+                    break
+            
+            if not lon_name or not lat_name:
+                raise HTTPException(status_code=400, detail="Coordinate variables not found")
+            
+            # Get coordinates
+            lons = ds[lon_name].values
+            lats = ds[lat_name].values
+            
+            # Squeeze data to remove single dimensions
+            data = np.squeeze(data)
+            lons = np.squeeze(lons)
+            lats = np.squeeze(lats)
+            
+            # Apply range filtering if specified
+            if min_value is not None or max_value is not None:
+                mask = np.ones_like(data, dtype=bool)
+                if min_value is not None:
+                    mask &= (data >= min_value)
+                if max_value is not None:
+                    mask &= (data <= max_value)
+                # Set values outside range to NaN
+                data = np.where(mask, data, np.nan)
+            
+            # Handle coordinate dimensions
+            if lons.ndim == 1 and lats.ndim == 1:
+                # 1D coordinates - create meshgrid (regular grid case)
+                lon_grid, lat_grid = np.meshgrid(lons, lats)
+                
+                # For regular grids, we can directly use the data
+                # Ensure data shape matches grid
+                if data.shape != lon_grid.shape:
+                    # Try transpose if dimensions don't match
+                    if data.T.shape == lon_grid.shape:
+                        data = data.T
+                    else:
+                        raise HTTPException(status_code=400, detail=f"Data shape {data.shape} doesn't match coordinate grid {lon_grid.shape}")
+                
+                grid_data = data
+                grid_lons = lon_grid
+                grid_lats = lat_grid
+                
+            else:
+                # 2D coordinates - irregular grid, need interpolation
+                lon_grid = lons
+                lat_grid = lats
+                
+                # Create regular grid for interpolation
+                min_lon, max_lon = np.nanmin(lons), np.nanmax(lons)
+                min_lat, max_lat = np.nanmin(lats), np.nanmax(lats)
+                
+                # Determine grid resolution
+                original_points = data.size
+                if original_points > max_grid_size * max_grid_size:
+                    grid_resolution = max_grid_size
+                else:
+                    grid_resolution = min(max_grid_size, int(np.sqrt(original_points)))
+                
+                # Create regular grid
+                regular_lons = np.linspace(min_lon, max_lon, grid_resolution)
+                regular_lats = np.linspace(min_lat, max_lat, grid_resolution)
+                grid_lons, grid_lats = np.meshgrid(regular_lons, regular_lats)
+                
+                # Flatten for interpolation
+                valid_mask = ~np.isnan(data)
+                if np.sum(valid_mask) < 3:
+                    raise HTTPException(status_code=400, detail="Not enough valid data points for interpolation")
+                
+                points = np.column_stack((lons[valid_mask].flatten(), lats[valid_mask].flatten()))
+                values = data[valid_mask].flatten()
+                
+                # Interpolate to regular grid
+                grid_points = np.column_stack((grid_lons.flatten(), grid_lats.flatten()))
+                
+                try:
+                    interpolated_values = griddata(
+                        points, values, grid_points, 
+                        method='linear', fill_value=np.nan
+                    )
+                    grid_data = interpolated_values.reshape(grid_lons.shape)
+                except Exception as e:
+                    # Fallback to nearest neighbor if linear fails
+                    interpolated_values = griddata(
+                        points, values, grid_points, 
+                        method='nearest', fill_value=np.nan
+                    )
+                    grid_data = interpolated_values.reshape(grid_lons.shape)
+            
+            # Calculate statistics
+            valid_data = grid_data[~np.isnan(grid_data)]
+            if len(valid_data) > 0:
+                data_min = float(np.min(valid_data))
+                data_max = float(np.max(valid_data))
+                data_mean = float(np.mean(valid_data))
+            else:
+                data_min = data_max = data_mean = 0
+            
+            # Convert to nested lists for JSON serialization
+            grid_data_list = []
+            grid_lons_list = []
+            grid_lats_list = []
+            
+            for i in range(grid_data.shape[0]):
+                data_row = []
+                lon_row = []
+                lat_row = []
+                for j in range(grid_data.shape[1]):
+                    if np.isnan(grid_data[i, j]):
+                        data_row.append(None)
+                    else:
+                        data_row.append(float(grid_data[i, j]))
+                    lon_row.append(float(grid_lons[i, j]))
+                    lat_row.append(float(grid_lats[i, j]))
+                grid_data_list.append(data_row)
+                grid_lons_list.append(lon_row)
+                grid_lats_list.append(lat_row)
+            
+            return {
+                "satellite": satellite,
+                "parameter": parameter,
+                "filename": filename,
+                "grid_data": grid_data_list,
+                "grid_lons": grid_lons_list,
+                "grid_lats": grid_lats_list,
+                "shape": list(grid_data.shape),
+                "bounds": {
+                    "north": float(np.max(grid_lats)),
+                    "south": float(np.min(grid_lats)),
+                    "east": float(np.max(grid_lons)),
+                    "west": float(np.min(grid_lons))
+                },
+                "statistics": {
+                    "min": data_min,
+                    "max": data_max,
+                    "mean": data_mean,
+                    "valid_pixels": len(valid_data),
+                    "total_pixels": grid_data.size,
+                    "units": get_parameter_units(parameter, satellite)
+                },
+                "metadata": {
+                    "grid_type": "regular" if lons.ndim == 1 else "interpolated",
+                    "original_shape": list(data.shape) if lons.ndim == 1 else "irregular",
+                    "grid_resolution": grid_data.shape
+                }
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_details = {
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "satellite": satellite,
+            "parameter": parameter,
+            "filename": filename
+        }
+        print(f"❌ Error getting grid data for heatmap: {error_details}")
+        raise HTTPException(status_code=500, detail=f"Failed to get grid data: {str(e)}")
+
+@app.get("/api/v1/satellites/{satellite}/{parameter}/simple-data/{filename}")
+async def get_simple_nc_data(
+    satellite: str, 
+    parameter: str, 
+    filename: str,
+    target_time: str = None
+):
+    """Get NetCDF data in the simplest format possible - just like matplotlib reads it"""
+    if satellite not in SATELLITES:
+        raise HTTPException(status_code=404, detail=f"Satellite '{satellite}' not found")
+    
+    try:
+        import xarray as xr
+        import numpy as np
+        from pathlib import Path
+        
+        # Unified directory structure
+        base_data_dir = Path("data")
+        file_path = base_data_dir / satellite / parameter / "nc" / filename
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+        
+        # Read the NetCDF file - exactly like matplotlib does
+        with xr.open_dataset(file_path, engine="netcdf4") as ds:
+            # Find the data variable
+            data_var = None
+            if satellite in ['sentinel3a', 'sentinel3b']:
+                sentinel3_api = get_sentinel3_api()
+                data_var = sentinel3_api.find_data_variable(ds, parameter)
+            else:
+                for var_name in ["sea_surface_temperature"]:
+                    if var_name in ds.data_vars:
+                        data_var = ds[var_name]
+                        break
+            
+            if data_var is None:
+                raise HTTPException(status_code=400, detail="No data variable found in file")
+            
+            # Handle multi-time data
+            if len(data_var.shape) > 2:
+                if satellite in ['sentinel3a', 'sentinel3b']:
+                    sentinel3_api = get_sentinel3_api()
+                    time_coords = ds['time'].values
+                    data = sentinel3_api.get_sentinel3_data(data_var, target_time, time_coords)
+                else:
+                    if target_time:
+                        from datetime import datetime
+                        try:
+                            target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
+                            time_coords = ds['time'].values
+                            time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
+                            closest_time_idx = np.argmin(time_diffs)
+                            data = data_var.values[closest_time_idx]
+                        except Exception as e:
+                            data = find_first_valid_timepoint(data_var)
+                    else:
+                        data = find_first_valid_timepoint(data_var)
+            else:
+                data = data_var.values
+            
+            # Get coordinates
+            lon_name = None
+            lat_name = None
+            for coord in ["lon", "longitude"]:
+                if coord in ds.coords:
+                    lon_name = coord
+                    break
+            for coord in ["lat", "latitude"]:
+                if coord in ds.coords:
+                    lat_name = coord
+                    break
+            
+            if not lon_name or not lat_name:
+                raise HTTPException(status_code=400, detail="Coordinate variables not found")
+            
+            lons = ds[lon_name].values
+            lats = ds[lat_name].values
+            
+            # Squeeze data
+            data = np.squeeze(data)
+            lons = np.squeeze(lons)
+            lats = np.squeeze(lats)
+            
+            # 确保数据是2D的
+            if data.ndim != 2:
+                raise HTTPException(status_code=400, detail=f"Expected 2D data, got {data.ndim}D")
+            
+            # 转换为列表格式，处理NaN
+            data_list = []
+            for i in range(data.shape[0]):
+                row = []
+                for j in range(data.shape[1]):
+                    val = data[i, j]
+                    if np.isnan(val):
+                        row.append(None)
+                    else:
+                        row.append(float(val))
+                data_list.append(row)
+            
+            # 计算统计信息
+            valid_data = data[~np.isnan(data)]
+            if len(valid_data) > 0:
+                min_value = float(np.min(valid_data))
+                max_value = float(np.max(valid_data))
+                mean_value = float(np.mean(valid_data))
+            else:
+                min_value = max_value = mean_value = 0
+            
+            return {
+                "data": data_list,
+                "lons": lons.tolist(),
+                "lats": lats.tolist(),
+                "min_value": min_value,
+                "max_value": max_value,
+                "mean_value": mean_value,
+                "units": get_parameter_units(parameter, satellite),
+                "shape": list(data.shape),
+                "satellite": satellite,
+                "parameter": parameter,
+                "filename": filename
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_details = {
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+            "satellite": satellite,
+            "parameter": parameter,
+            "filename": filename
+        }
+        print(f"❌ Error getting simple NC data: {error_details}")
+        raise HTTPException(status_code=500, detail=f"Failed to get simple NC data: {str(e)}")
 
 # Simple processing endpoint (placeholder for now)
 @app.post("/api/v1/process", response_model=ProcessingStatus)

@@ -505,22 +505,19 @@ export function useDataStore(): DataStore {
 
         const { satellite, parameter } = mapping;
 
-        // 使用新的统一API路径
-        let apiPath = "";
-        if (satellite === "himawari") {
-          apiPath = `${API_BASE_URL}/himawari/files/${fileType}`;
-        } else if (satellite.startsWith("sentinel3")) {
-          apiPath = `${API_BASE_URL}/sentinel3/files/${satellite}/${parameter}/${fileType}`;
-        } else {
-          console.warn(`Unsupported satellite: ${satellite}`);
-          return [];
-        }
+        // 使用统一API路径
+        const apiPath = `${API_BASE_URL}/api/v1/satellites/${satellite}/${parameter}/${fileType}`;
 
         const response = await fetch(apiPath);
 
         if (response.ok) {
           const data = await response.json();
-          return data.files || [];
+          // 将directory信息添加到每个文件对象中，以便前端可以构建完整路径
+          const filesWithDirectory = (data.files || []).map((file: any) => ({
+            ...file,
+            directory: data.directory // 添加完整目录路径
+          }));
+          return filesWithDirectory;
         } else {
           console.error(
             `Failed to fetch ${fileType} files for ${paramId}:`,
