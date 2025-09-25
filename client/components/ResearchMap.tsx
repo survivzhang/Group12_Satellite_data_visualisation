@@ -23,8 +23,12 @@ import {
   FolderOpen,
   Copy,
   Info,
+  Globe,
+  Camera,
 } from "lucide-react";
 import { useDataStore } from "@/hooks/useDataStore";
+import { InteractiveMap } from "@/components/InteractiveMap";
+import { CanvasInteractiveMap } from "@/components/CanvasInteractiveMap";
 
 interface ResearchMapProps {
   parameter: string;
@@ -182,6 +186,9 @@ export function ResearchMap({
     localPath?: string;
   } | null>(null);
   const [isImageInfoDialogOpen, setIsImageInfoDialogOpen] = useState(false);
+  
+  // State for map view mode
+  const [viewMode, setViewMode] = useState<"static" | "interactive" | "canvas">("static");
 
   // 如果没有传入getParameterFiles，则使用useDataStore（向后兼容）
   const dataStore = !getParameterFiles ? useDataStore() : null;
@@ -501,11 +508,16 @@ export function ResearchMap({
           setImageUrl(pngUrl);
           setIsLoading(false);
           
-          // Update current image info for path display functionality
+          // Update current image info for path display functionality  
+          // Use absolute directory path from backend if available
+          const absolutePath = targetFile.directory 
+            ? `${targetFile.directory}${targetFile.directory.includes('\\') ? '\\' : '/'}${targetFile.filename}`
+            : `data/${satelliteMapping.satellite}/${satelliteMapping.parameter}/png/${targetFile.filename}`;
+          
           const imageInfo = {
             filename: targetFile.filename,
             url: pngUrl,
-            localPath: `data/${satelliteMapping.satellite}/${satelliteMapping.parameter}/png/${targetFile.filename}`
+            localPath: absolutePath
           };
           setCurrentImageInfo(imageInfo);
           console.log('Current image info updated:', imageInfo);
@@ -549,6 +561,92 @@ export function ResearchMap({
       </div>
     );
   }
+
+  // 选择要渲染的内容
+  if (viewMode === "interactive") {
+    return (
+      <div
+        className={`relative ${
+          isFullscreen ? "h-full" : "h-96"
+        } rounded-lg overflow-hidden`}
+      >
+        {/* 视图切换按钮 */}
+        <div className="absolute top-4 right-4 z-[1000] flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setViewMode("canvas")}
+            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
+            title="Switch to canvas heatmap view"
+          >
+            <Globe className="h-3 w-3 mr-1" />
+            Canvas
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setViewMode("static")}
+            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
+            title="Switch to static image view"
+          >
+            <Camera className="h-3 w-3 mr-1" />
+            Static
+          </Button>
+        </div>
+
+        <InteractiveMap
+          parameter={parameter}
+          timeRange={timeRange}
+          availableParameters={availableParameters}
+          isFullscreen={isFullscreen}
+          getParameterFiles={getFiles}
+        />
+      </div>
+    );
+  }
+
+  if (viewMode === "canvas") {
+    return (
+      <div
+        className={`relative ${
+          isFullscreen ? "h-full" : "h-96"
+        } rounded-lg overflow-hidden`}
+      >
+        {/* 视图切换按钮 */}
+        <div className="absolute top-4 right-4 z-[1000] flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setViewMode("interactive")}
+            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
+            title="Switch to point interactive view"
+          >
+            <MapPin className="h-3 w-3 mr-1" />
+            Points
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setViewMode("static")}
+            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
+            title="Switch to static image view"
+          >
+            <Camera className="h-3 w-3 mr-1" />
+            Static
+          </Button>
+        </div>
+
+        <CanvasInteractiveMap
+          parameter={parameter}
+          timeRange={timeRange}
+          availableParameters={availableParameters}
+          isFullscreen={isFullscreen}
+          getParameterFiles={getFiles}
+        />
+      </div>
+    );
+  }
+
 
   return (
     <div
@@ -703,24 +801,73 @@ export function ResearchMap({
                     <div className="mt-1 p-2 bg-gray-50 rounded border text-sm font-mono break-all">
                       {currentImageInfo.localPath}
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="mt-2"
-                      onClick={() => {
-                        navigator.clipboard.writeText(currentImageInfo.localPath || '')
-                          .then(() => {
-                            // You could add a toast notification here
-                            console.log('Path copied to clipboard');
-                          })
-                          .catch((err) => {
-                            console.error('Failed to copy path:', err);
-                          });
-                      }}
-                    >
-                      <Copy className="h-3 w-3 mr-1" />
-                      Copy Path
-                    </Button>
+                    <div className="flex gap-2 mt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          try {
+                            // 尝试通过后端API打开文件管理器
+                            const response = await fetch('http://localhost:8000/api/v1/open-path', {
+                              method: 'POST',
+                              headers: {
+                                'Content-Type': 'application/json',
+                              },
+                              body: JSON.stringify({
+                                path: currentImageInfo.localPath
+                              })
+                            });
+                            
+                            if (response.ok) {
+                              console.log('File manager opened successfully');
+                            } else {
+                              throw new Error('Backend API failed');
+                            }
+                          } catch (error) {
+                            console.error('Failed to open path via backend:', error);
+                            
+                            // 后备方案：尝试使用浏览器原生方法
+                            try {
+                              // 对于Windows系统，尝试使用file:// protocol
+                              const fileUrl = `file:///${currentImageInfo.localPath?.replace(/\\/g, '/')}`;
+                              window.open(fileUrl, '_blank');
+                            } catch (fallbackError) {
+                              console.error('Fallback method also failed:', fallbackError);
+                              // 最后的后备方案：复制路径到剪贴板
+                              navigator.clipboard.writeText(currentImageInfo.localPath || '')
+                                .then(() => {
+                                  alert('Cannot open file manager. Path copied to clipboard instead.');
+                                })
+                                .catch(() => {
+                                  alert('Cannot open file manager or copy path. Please manually navigate to: ' + currentImageInfo.localPath);
+                                });
+                            }
+                          }
+                        }}
+                      >
+                        <FolderOpen className="h-3 w-3 mr-1" />
+                        Open Path
+                      </Button>
+                      
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          navigator.clipboard.writeText(currentImageInfo.localPath || '')
+                            .then(() => {
+                              console.log('Path copied to clipboard');
+                              // 可以添加toast通知
+                            })
+                            .catch((err) => {
+                              console.error('Failed to copy path:', err);
+                              alert('Failed to copy path to clipboard');
+                            });
+                        }}
+                      >
+                        <Copy className="h-3 w-3 mr-1" />
+                        Copy Path
+                      </Button>
+                    </div>
                   </div>
                   
                   <div>
@@ -765,6 +912,30 @@ export function ResearchMap({
             </DialogContent>
           </Dialog>
         )}
+
+        {/* View Mode Toggle Buttons */}
+        <div className="flex flex-col gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setViewMode("canvas")}
+            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 w-fit"
+            title="Switch to canvas view"
+          >
+            <Globe className="h-3 w-3 mr-1" />
+            Canvas
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setViewMode("interactive")}
+            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 w-fit"
+            title="Switch to point interactive view"
+          >
+            <MapPin className="h-3 w-3 mr-1" />
+            Interactive
+          </Button>
+        </div>
 
         {/* Parameter Value Range Selector Button */}
         <Dialog open={isRangeDialogOpen} onOpenChange={setIsRangeDialogOpen}>
