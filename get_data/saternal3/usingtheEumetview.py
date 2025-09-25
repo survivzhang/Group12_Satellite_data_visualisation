@@ -14,7 +14,7 @@ import time
 import warnings
 from pathlib import Path
 from typing import Tuple, Optional, List, Dict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 from xml.etree import ElementTree
@@ -461,6 +461,125 @@ class EUMETViewDataProcessor:
             'chl': 'Chlorophyll Concentration (mg/m³)'
         }
         return labels.get(data_type, 'Value')
+    
+    def get_latest_file_time(self, satellite: str, data_type: str) -> Optional[datetime]:
+        """
+        Get the latest time from existing NC files for a specific satellite and data type.
+        
+        Args:
+            satellite: Satellite name (sentinel3a, sentinel3b)
+            data_type: Data type (sst, chl)
+            
+        Returns:
+            Latest datetime found in existing files, or None if no files exist
+        """
+        try:
+            nc_dir = self.unified_base_dir / satellite / data_type / "nc"
+            if not nc_dir.exists():
+                return None
+            
+            nc_files = list(nc_dir.glob("*.nc"))
+            if not nc_files:
+                return None
+            
+            latest_time = None
+            
+            for nc_file in nc_files:
+                try:
+                    with xr.open_dataset(nc_file) as ds:
+                        if 'time' in ds.coords:
+                            # Get the latest time from this file
+                            file_times = ds['time'].values
+                            if len(file_times) > 0:
+                                # Convert to datetime
+                                if hasattr(file_times, 'max'):
+                                    max_time = file_times.max()
+                                else:
+                                    max_time = file_times[-1] if len(file_times) > 0 else file_times[0]
+                                
+                                # Convert numpy datetime to Python datetime
+                                if hasattr(max_time, 'item'):
+                                    max_time = max_time.item()
+                                
+                                # Handle different datetime formats
+                                if hasattr(max_time, 'to_pydatetime'):
+                                    max_time = max_time.to_pydatetime()
+                                elif isinstance(max_time, (int, float)):
+                                    # Handle timestamp (nanoseconds)
+                                    if max_time > 1e18:  # nanoseconds
+                                        max_time = datetime.fromtimestamp(max_time / 1e9)
+                                    elif max_time > 1e15:  # microseconds
+                                        max_time = datetime.fromtimestamp(max_time / 1e6)
+                                    elif max_time > 1e12:  # milliseconds
+                                        max_time = datetime.fromtimestamp(max_time / 1e3)
+                                    else:  # seconds
+                                        max_time = datetime.fromtimestamp(max_time)
+                                
+                                if latest_time is None or max_time > latest_time:
+                                    latest_time = max_time
+                except Exception as e:
+                    print(f"Warning: Could not read time from {nc_file}: {e}")
+                    continue
+            
+            return latest_time
+            
+        except Exception as e:
+            print(f"Error getting latest file time for {satellite}/{data_type}: {e}")
+            return None
+    
+    def get_optimal_time_range(self, satellite: str, data_type: str, requested_start: datetime, requested_end: datetime) -> Tuple[datetime, datetime]:
+        """
+        Get optimal time range for download, considering existing files.
+        
+        Args:
+            satellite: Satellite name (sentinel3a, sentinel3b)
+            data_type: Data type (sst, chl)
+            requested_start: Original requested start time
+            requested_end: Original requested end time
+            
+        Returns:
+            Tuple of (optimal_start_time, optimal_end_time)
+        """
+        latest_file_time = self.get_latest_file_time(satellite, data_type)
+        
+        if latest_file_time is None:
+            # No existing files, use requested range
+            print(f"No existing files for {satellite}/{data_type}, using full requested range")
+            return requested_start, requested_end
+        
+        # Convert to datetime if needed
+        if hasattr(latest_file_time, 'to_pydatetime'):
+            latest_file_time = latest_file_time.to_pydatetime()
+        elif hasattr(latest_file_time, 'item'):
+            latest_file_time = latest_file_time.item()
+        
+        # Ensure timezone consistency
+        if latest_file_time.tzinfo is None:
+            # Make naive datetime timezone-aware (UTC)
+            from datetime import timezone
+            latest_file_time = latest_file_time.replace(tzinfo=timezone.utc)
+        
+        if requested_start.tzinfo is None:
+            requested_start = requested_start.replace(tzinfo=timezone.utc)
+        if requested_end.tzinfo is None:
+            requested_end = requested_end.replace(tzinfo=timezone.utc)
+        
+        # Add small buffer (1 hour) to avoid overlap
+        buffer = timedelta(hours=1)
+        optimal_start = latest_file_time + buffer
+        
+        # Don't go beyond requested end time
+        optimal_end = min(optimal_start + timedelta(days=1), requested_end)
+        
+        # If optimal start is after requested end, no new data needed
+        if optimal_start >= requested_end:
+            print(f"Latest file time {latest_file_time} is already up to date for {satellite}/{data_type}")
+            return None, None
+        
+        print(f"Latest file time for {satellite}/{data_type}: {latest_file_time}")
+        print(f"Optimal download range: {optimal_start} to {optimal_end}")
+        
+        return optimal_start, optimal_end
 
 
 class EUMETViewWorkflow:
@@ -478,7 +597,7 @@ class EUMETViewWorkflow:
         consumer_secret: Optional[str] = None
     ):
         """
-        Run the complete data processing workflow.
+        Run the complete data processing workflow with incremental download.
         
         Args:
             layer_keys: List of layer keys to process
@@ -487,7 +606,7 @@ class EUMETViewWorkflow:
             consumer_key: Consumer key (optional, uses hardcoded if not provided)
             consumer_secret: Consumer secret (optional, uses hardcoded if not provided)
         """
-        print("=== EUMETView Data Processing Workflow ===")
+        print("=== EUMETView Incremental Data Processing Workflow ===")
         
         # Step 1: Authenticate
         print("\n1. Authenticating...")
@@ -497,39 +616,111 @@ class EUMETViewWorkflow:
             print(f"Authentication failed: {e}")
             return
         
-        # Step 2: Download data
-        print(f"\n2. Downloading data for layers: {layer_keys}")
-        try:
-            downloaded_files = self.processor.download_data(
-                layer_keys=layer_keys,
-                region=region,
-                time_range=time_range
-            )
-            
-            if not downloaded_files:
-                print("No data was successfully downloaded")
-                return
-                
-        except Exception as e:
-            print(f"Data download failed: {e}")
-            return
+        # Step 2: Process each layer separately with incremental download
+        print(f"\n2. Processing layers with incremental download: {layer_keys}")
         
-        # Step 3: Process and visualize
-        print("\n3. Processing and creating visualizations...")
-        try:
-            visualization_files = self.processor.process_and_visualize(
-                downloaded_files=downloaded_files
+        from datetime import datetime
+        requested_start = datetime.fromisoformat(time_range[0].replace('Z', '+00:00'))
+        requested_end = datetime.fromisoformat(time_range[1].replace('Z', '+00:00'))
+        
+        total_downloaded = 0
+        total_visualized = 0
+        
+        for layer_key in layer_keys:
+            print(f"\n--- Processing {layer_key} ---")
+            
+            # Parse satellite and data type
+            satellite, data_type = self.processor._parse_layer_key(layer_key)
+            
+            # Get optimal time range for this specific layer
+            optimal_start, optimal_end = self.processor.get_optimal_time_range(
+                satellite, data_type, requested_start, requested_end
             )
             
-            # Print summary
-            total_plots = sum(len(plots) for plots in visualization_files.values())
-            print(f"\n=== Workflow Complete ===")
-            print(f"Downloaded {len(downloaded_files)} datasets")
-            print(f"Generated {total_plots} visualization plots")
-            print(f"Results saved to: {self.processor.base_dir}")
+            if optimal_start is None or optimal_end is None:
+                print(f"⏭️ Skipping {layer_key} - no new data needed")
+                continue
             
-        except Exception as e:
-            print(f"Visualization failed: {e}")
+            # Format time range for download
+            optimal_time_range = (
+                optimal_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                optimal_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+            )
+            
+            try:
+                # Download data for this layer only
+                print(f"📥 Downloading {layer_key} from {optimal_time_range[0]} to {optimal_time_range[1]}")
+                downloaded_files = self.processor.download_data(
+                    layer_keys=[layer_key],
+                    region=region,
+                    time_range=optimal_time_range
+                )
+                
+                if downloaded_files:
+                    total_downloaded += len(downloaded_files)
+                    print(f"✅ Downloaded {len(downloaded_files)} files for {layer_key}")
+                    
+                    # Process and visualize immediately
+                    print(f"🎨 Creating visualizations for {layer_key}")
+                    visualization_files = self.processor.process_and_visualize(
+                        downloaded_files=downloaded_files
+                    )
+                    
+                    plots_count = sum(len(plots) for plots in visualization_files.values())
+                    total_visualized += plots_count
+                    print(f"✅ Generated {plots_count} plots for {layer_key}")
+                else:
+                    print(f"⚠️ No data downloaded for {layer_key}")
+                    
+            except Exception as e:
+                print(f"❌ Failed to process {layer_key}: {e}")
+                continue
+        
+        # Print final summary
+        print(f"\n=== Workflow Complete ===")
+        print(f"Total datasets downloaded: {total_downloaded}")
+        print(f"Total visualization plots generated: {total_visualized}")
+        print(f"Results saved to: {self.processor.base_dir}")
+    
+    def run_incremental_update(
+        self,
+        region: Tuple[float, float, float, float],
+        consumer_key: Optional[str] = None,
+        consumer_secret: Optional[str] = None
+    ):
+        """
+        Run incremental update for all Sentinel-3 parameters.
+        
+        Args:
+            region: Bounding box (lon1, lat1, lon2, lat2)
+            consumer_key: Consumer key (optional, uses hardcoded if not provided)
+            consumer_secret: Consumer secret (optional, uses hardcoded if not provided)
+        """
+        print("=== Sentinel-3 Incremental Update ===")
+        
+        # All 4 parameters
+        all_layer_keys = ['sentinel3a_sst', 'sentinel3a_chl', 'sentinel3b_sst', 'sentinel3b_chl']
+        
+        # Use current time as end time, and go back 3 days as start time
+        from datetime import datetime, timedelta
+        end_time = datetime.utcnow()
+        start_time = end_time - timedelta(days=3)
+        
+        time_range = (
+            start_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            end_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        )
+        
+        print(f"Time range: {time_range[0]} to {time_range[1]}")
+        
+        # Run the complete workflow with incremental logic
+        self.run_complete_workflow(
+            layer_keys=all_layer_keys,
+            region=region,
+            time_range=time_range,
+            consumer_key=consumer_key,
+            consumer_secret=consumer_secret
+        )
 
 
 # Convenience function for example usage
@@ -539,7 +730,9 @@ def run_eumetview_example():
     # Configuration parameters
     layer_keys = ['sentinel3a_sst', 'sentinel3a_chl']
     region = (111, -25, 114, -20)  # Western Australia region
-    time_range = ('2025-08-10T00:00:00.000Z', datetime.utcnow().isoformat() + 'Z')
+    start_time = datetime(2025, 9, 12, 0, 0, 0)
+    end_time = datetime.utcnow()
+    time_range = (start_time.strftime("%Y-%m-%dT%H:%M:%SZ"), end_time.strftime("%Y-%m-%dT%H:%M:%SZ"))
     
     # Create workflow instance
     workflow = EUMETViewWorkflow()

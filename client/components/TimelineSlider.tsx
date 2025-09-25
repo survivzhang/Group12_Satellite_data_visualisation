@@ -36,8 +36,8 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
   const currentGranularity =
     granularityOptions.find((g) => g.id === timeRange.granularity) || granularityOptions[3];
 
-  // Fixed date range: August 10, 2025 to now
-  const fixedStartDate = new Date("2025-08-10T00:00:00Z");
+  // Fixed date range: September 12, 2025 to now
+  const fixedStartDate = new Date("2025-09-12T00:00:00Z");
   const fixedEndDate = new Date();
   const totalDuration = fixedEndDate.getTime() - fixedStartDate.getTime();
 
