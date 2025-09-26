@@ -361,7 +361,7 @@ export default function NingalooResearchApp() {
                         variant="outline"
                         size="sm"
                         onClick={() => toggleFullscreen(instance.id)}
-                        className="h-8 w-8 p-0"
+                        className="h-8 w-8 p-0 bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 opacity-100"
                         title="Fullscreen"
                       >
                         <Maximize2 className="h-4 w-4" />
@@ -370,7 +370,7 @@ export default function NingalooResearchApp() {
                         variant="outline"
                         size="sm"
                         onClick={() => removeMapInstance(instance.id)}
-                        className="h-8 w-8 p-0"
+                        className="h-8 w-8 p-0 bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 opacity-100"
                         title="Remove Map"
                       >
                         <X className="h-4 w-4" />
