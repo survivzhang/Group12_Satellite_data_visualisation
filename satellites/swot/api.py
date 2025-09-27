@@ -55,15 +55,32 @@ class SwotAPI(BaseSatelliteAPI):
                     "swot_processor",
                     swot_path / "swot_processor.py"
                 )
+                if spec is None or spec.loader is None:
+                    raise ImportError(f"Could not load swot_processor from {swot_path / 'swot_processor.py'}")
                 swot_processor = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(swot_processor)
             
-            self.processor = swot_processor.SwotDataProcessor(str(self.base_dir))
-            self.workflow = swot_processor.SwotWorkflow(str(self.base_dir))
-            self.file_monitor = swot_processor.create_file_monitor(str(self.base_dir))
+            # Initialize components with error handling
+            if hasattr(swot_processor, 'SwotDataProcessor'):
+                self.processor = swot_processor.SwotDataProcessor(str(self.base_dir))
+            else:
+                raise AttributeError("SwotDataProcessor class not found in swot_processor module")
+                
+            if hasattr(swot_processor, 'SwotWorkflow'):
+                self.workflow = swot_processor.SwotWorkflow(str(self.base_dir))
+            else:
+                raise AttributeError("SwotWorkflow class not found in swot_processor module")
+                
+            if hasattr(swot_processor, 'create_file_monitor'):
+                self.file_monitor = swot_processor.create_file_monitor(str(self.base_dir))
+            else:
+                raise AttributeError("create_file_monitor function not found in swot_processor module")
+                
             print("✅ SWOT modules initialized successfully")
         except Exception as e:
             print(f"⚠️ Failed to initialize SWOT modules: {e}")
+            import traceback
+            traceback.print_exc()
             self.processor = None
             self.workflow = None
             self.file_monitor = None
@@ -211,7 +228,8 @@ class SwotAPI(BaseSatelliteAPI):
             health = await self.health_check()
             return {"status": health.status, "timestamp": health.timestamp}
         elif path == "files":
-            return await self._list_processed_files()
+            file_type = params.get("file_type", "nc")
+            return await self._list_files_by_type(file_type)
         elif path == "visualizations":
             return await self._list_visualizations()
         elif path == "system-status":
@@ -243,6 +261,12 @@ class SwotAPI(BaseSatelliteAPI):
                 return await self._regenerate_png_files(data)
             elif path == "download-data" and data:
                 return await self._download_data_direct(data, background_tasks)
+            elif path == "check-files" and data:
+                return await self._check_file_completeness(data)
+            elif path == "repair-files" and data:
+                return await self._repair_missing_files(data, background_tasks)
+            elif path == "auto-monitor-repair":
+                return await self._auto_monitor_and_repair(background_tasks)
             else:
                 raise HTTPException(status_code=404, detail=f"SWOT POST endpoint '{path}' not found")
         except Exception as e:
@@ -298,6 +322,15 @@ class SwotAPI(BaseSatelliteAPI):
             self.tasks[task_id]["status"] = "failed"
             self.tasks[task_id]["message"] = f"Processing failed: {str(e)}"
             self.tasks[task_id]["progress"] = 0
+    
+    async def _list_files_by_type(self, file_type: str) -> Dict[str, Any]:
+        """List files by type (nc or png)"""
+        if file_type == "nc":
+            return await self._list_processed_files()
+        elif file_type == "png":
+            return await self._list_visualizations()
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_type}")
     
     async def _list_processed_files(self) -> Dict[str, Any]:
         """List all processed NetCDF data files"""
@@ -519,7 +552,10 @@ class SwotAPI(BaseSatelliteAPI):
                 "POST /check-file": "Check file status (requires nc_file_path in JSON body)",
                 "POST /regenerate-pngs": "Regenerate PNGs (requires nc_file_path in JSON body)",
                 "POST /download-data": "Download SWOT data (requires download parameters)",
-                "POST /process-data": "Full processing workflow"
+                "POST /process-data": "Full processing workflow",
+                "POST /check-files": "Check file completeness (requires time range parameters)",
+                "POST /repair-files": "Repair missing files (requires time range parameters)",
+                "POST /auto-monitor-repair": "Auto monitor and repair missing files"
             },
             "example_usage": {
                 "check_file": {
@@ -553,7 +589,167 @@ class SwotAPI(BaseSatelliteAPI):
                         "south_lat": -25.0,
                         "north_lat": -20.0
                     }
+                },
+                "check_files": {
+                    "method": "POST",
+                    "url": "/check-files",
+                    "body": {
+                        "start_time": "2025-03-01T00:00:00",
+                        "end_time": "2025-03-01T12:00:00",
+                        "tstep": 3600
+                    }
+                },
+                "repair_files": {
+                    "method": "POST",
+                    "url": "/repair-files",
+                    "body": {
+                        "start_time": "2025-03-01T00:00:00",
+                        "end_time": "2025-03-01T12:00:00",
+                        "west_lon": 111.0,
+                        "east_lon": 114.0,
+                        "south_lat": -25.0,
+                        "north_lat": -20.0
+                    }
+                },
+                "auto_monitor_repair": {
+                    "method": "POST",
+                    "url": "/auto-monitor-repair",
+                    "body": {}
                 }
             },
             "note": "Use /docs for interactive API documentation"
         }
+    
+    async def _check_file_completeness(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Check file completeness for SWOT data"""
+        try:
+            # Use file monitor to check completeness
+            start_time = data.get("start_time", "2025-03-01T00:00:00")
+            end_time = data.get("end_time", "2025-03-01T12:00:00")
+            tstep = data.get("tstep", 3600)  # 1 hour in seconds
+            
+            results = self.file_monitor.check_file_completeness(
+                timelims=(start_time, end_time),
+                tstep=tstep
+            )
+            
+            return {
+                "success": True,
+                "results": results,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def _repair_missing_files(self, data: Dict[str, Any], background_tasks: BackgroundTasks) -> Dict[str, Any]:
+        """Repair missing SWOT files"""
+        try:
+            import uuid
+            task_id = str(uuid.uuid4())
+            
+            # Store repair task
+            self.tasks[task_id] = {
+                "status": "pending",
+                "message": "SWOT repair task queued",
+                "progress": 0,
+                "satellite": "swot"
+            }
+            
+            # Add background task for repair
+            background_tasks.add_task(
+                self._run_repair_task,
+                task_id,
+                data
+            )
+            
+            return {
+                "task_id": task_id,
+                "status": "pending",
+                "message": "SWOT repair task started"
+            }
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def _run_repair_task(self, task_id: str, data: Dict[str, Any]):
+        """Background task for repairing missing SWOT files"""
+        try:
+            self.tasks[task_id]["status"] = "processing"
+            self.tasks[task_id]["message"] = "Repairing missing SWOT files..."
+            self.tasks[task_id]["progress"] = 10
+            
+            # Set up repair parameters
+            start_time = data.get("start_time", "2025-03-01T00:00:00")
+            end_time = data.get("end_time", "2025-03-01T12:00:00")
+            west_lon = data.get("west_lon", 111.0)
+            east_lon = data.get("east_lon", 114.0)
+            south_lat = data.get("south_lat", -25.0)
+            north_lat = data.get("north_lat", -20.0)
+            
+            # Set up SWOT processing parameters
+            ftp_path = '/swot_products/l3_karin_nadir/l3_lr_ssh/v2_0_1/Expert/'
+            level = "L3"
+            variant = "Expert"
+            cycle_numbers = [29]  # Can be made configurable
+            half_orbits = [62]    # Can be made configurable
+            variables = ['time', 'ssha_filtered']
+            
+            # Run the repair using the workflow
+            result = await asyncio.to_thread(
+                self.workflow.run_complete_workflow,
+                ftp_path=ftp_path,
+                level=level,
+                variant=variant,
+                cycle_numbers=cycle_numbers,
+                half_orbits=half_orbits,
+                variables=variables,
+                lon_range=(west_lon, east_lon),
+                lat_range=(south_lat, north_lat),
+                username=getattr(data, 'swot_username', None),
+                password=getattr(data, 'swot_password', None)
+            )
+            
+            if result.get('success', False):
+                self.tasks[task_id]["status"] = "completed"
+                self.tasks[task_id]["message"] = f"Repair completed successfully. Generated {result.get('total_plots', 0)} plots"
+                self.tasks[task_id]["progress"] = 100
+                self.tasks[task_id]["result"] = result
+            else:
+                self.tasks[task_id]["status"] = "failed"
+                self.tasks[task_id]["message"] = f"Repair failed: {result.get('error', 'Unknown error')}"
+                self.tasks[task_id]["progress"] = 0
+            
+        except Exception as e:
+            self.tasks[task_id]["status"] = "failed"
+            self.tasks[task_id]["message"] = f"Repair failed: {str(e)}"
+            self.tasks[task_id]["progress"] = 0
+    
+    async def _auto_monitor_and_repair(self, background_tasks: BackgroundTasks) -> Dict[str, Any]:
+        """Auto monitor and repair SWOT data files - Direct update without checking"""
+        try:
+            print("=== SWOT Auto Monitor and Repair ===")
+            print("🚀 SWOT: Direct data update (orbit-based, no pre-check needed)")
+            
+            # SWOT直接执行更新，不进行预先检查
+            # 因为SWOT是轨道卫星，数据按轨道周期更新，不是按固定时间步长
+            repair_data = {
+                "start_time": "2025-03-01T00:00:00",  # 使用实际SWOT数据时间范围
+                "end_time": "2025-03-01T23:59:59",
+                "west_lon": 111.0,
+                "east_lon": 114.0,
+                "south_lat": -25.0,
+                "north_lat": -20.0
+            }
+            
+            print("🔧 Starting SWOT data update...")
+            repair_result = await self._repair_missing_files(repair_data, background_tasks)
+            print("✅ SWOT update process initiated")
+            
+            return {
+                "status": "update_initiated",
+                "message": "SWOT data update started (orbit-based satellite)",
+                "repair": repair_result
+            }
+                
+        except Exception as e:
+            print(f"❌ SWOT auto monitor and repair failed: {e}")
+            return {"error": str(e)}

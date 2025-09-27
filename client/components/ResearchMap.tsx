@@ -45,7 +45,45 @@ const SATELLITE_MAPPING = {
     parameter: "chl",
     staticPath: "/static/sentinel3b/chl/png",
   },
+  "ssha-swot": {
+    satellite: "swot",
+    parameter: "ssha",
+    staticPath: "/static/swot/ssha/png",
+  },
 };
+
+// 时间提取函数
+function extractTimeFromSentinel3Filename(filename: string): Date | null {
+  // Sentinel-3 文件名格式: YYYYMMDD_HHMMSS_*.png
+  const match = filename.match(/(\d{8})_(\d{6})/);
+  if (match) {
+    const [, dateStr, timeStr] = match;
+    const year = parseInt(dateStr.substring(0, 4));
+    const month = parseInt(dateStr.substring(4, 6)) - 1; // JavaScript months are 0-based
+    const day = parseInt(dateStr.substring(6, 8));
+    const hour = parseInt(timeStr.substring(0, 2));
+    const minute = parseInt(timeStr.substring(2, 4));
+    const second = parseInt(timeStr.substring(4, 6));
+    return new Date(Date.UTC(year, month, day, hour, minute, second));
+  }
+  return null;
+}
+
+function extractTimeFromSwotFilename(filename: string): Date | null {
+  // SWOT 文件名格式: YYYYMMDD_HHMMSS.png
+  const match = filename.match(/(\d{8})_(\d{6})/);
+  if (match) {
+    const [, dateStr, timeStr] = match;
+    const year = parseInt(dateStr.substring(0, 4));
+    const month = parseInt(dateStr.substring(4, 6)) - 1; // JavaScript months are 0-based
+    const day = parseInt(dateStr.substring(6, 8));
+    const hour = parseInt(timeStr.substring(0, 2));
+    const minute = parseInt(timeStr.substring(2, 4));
+    const second = parseInt(timeStr.substring(4, 6));
+    return new Date(Date.UTC(year, month, day, hour, minute, second));
+  }
+  return null;
+}
 
 export function ResearchMap({
   parameter,
@@ -83,6 +121,15 @@ export function ResearchMap({
       const day = String(utcDate.getUTCDate()).padStart(2, "0");
       const hour = String(utcDate.getUTCHours()).padStart(2, "0");
       return `${year}${month}${day}${hour}0000`;
+    } else if (parameter === "ssha-swot") {
+      // SWOT格式: YYYYMMDD_HHMMSS
+      const year = utcDate.getUTCFullYear();
+      const month = String(utcDate.getUTCMonth() + 1).padStart(2, "0");
+      const day = String(utcDate.getUTCDate()).padStart(2, "0");
+      const hour = String(utcDate.getUTCHours()).padStart(2, "0");
+      const minute = String(utcDate.getUTCMinutes()).padStart(2, "0");
+      const second = String(utcDate.getUTCSeconds()).padStart(2, "0");
+      return `${year}${month}${day}_${hour}${minute}${second}`;
     } else {
       // Sentinel-3格式: YYYYMMDD_HHMMSS格式用于匹配
       const year = utcDate.getUTCFullYear();
@@ -106,25 +153,6 @@ export function ResearchMap({
     }
   }, [parameter, satelliteMapping, getFiles, currentTimestamp]);
 
-  // 辅助函数：从Sentinel-3文件名提取时间
-  const extractTimeFromSentinel3Filename = (filename: string): Date | null => {
-    // Sentinel-3 PNG文件格式: YYYYMMDD_HHMMSS.png
-    const timeMatch = filename.match(/(\d{8})_(\d{6})\.png$/);
-    if (timeMatch) {
-      const dateStr = timeMatch[1]; // YYYYMMDD
-      const timeStr = timeMatch[2]; // HHMMSS
-      
-      const year = dateStr.substring(0, 4);
-      const month = dateStr.substring(4, 6);
-      const day = dateStr.substring(6, 8);
-      const hour = timeStr.substring(0, 2);
-      const minute = timeStr.substring(2, 4);
-      const second = timeStr.substring(4, 6);
-      
-      return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`);
-    }
-    return null;
-  };
 
   useEffect(() => {
     if (satelliteMapping && currentTimestamp && availableFiles.length > 0) {
@@ -138,13 +166,22 @@ export function ResearchMap({
           (file) => file.filename && file.filename.startsWith(currentTimestamp)
         );
       } else {
-        // Sentinel-3 文件查找 - 寻找选中时间点之前最近的那张图
+        // Sentinel-3 和 SWOT 文件查找 - 寻找选中时间点之前最近的那张图
         const selectedTime = timeRange.start.getTime();
         let bestFile = null;
         let bestTimeDiff = Infinity;
         
         for (const file of availableFiles) {
-          const fileTime = extractTimeFromSentinel3Filename(file.filename);
+          let fileTime = null;
+          
+          if (parameter === "ssha-swot") {
+            // SWOT 文件时间提取
+            fileTime = extractTimeFromSwotFilename(file.filename);
+          } else {
+            // Sentinel-3 文件时间提取
+            fileTime = extractTimeFromSentinel3Filename(file.filename);
+          }
+          
           if (fileTime && fileTime.getTime() <= selectedTime) {
             const timeDiff = selectedTime - fileTime.getTime();
             if (timeDiff < bestTimeDiff) {

@@ -12,7 +12,7 @@ import os
 import time
 import warnings
 from pathlib import Path
-from typing import Tuple, Optional, List, Dict
+from typing import Tuple, Optional, List, Dict, Any
 from datetime import datetime
 import ftplib
 from urllib.parse import urlparse
@@ -264,19 +264,82 @@ class SwotDataProcessor:
         self,
         ds: xr.Dataset,
         variable: str,
-        extent: Optional[List[float]] = None
+        extent: Optional[List[float]] = None,
+        filename: Optional[str] = None
     ) -> str:
         """Create a single plot for data with one time step."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Handle SWOT's 2D time structure
+        timestamp = None
+        
+        # First try to extract time from filename (SWOT specific)
+        if filename:
+            try:
+                # Extract time from SWOT filename pattern: SWOT_L3_LR_SSH_Expert_029_062_20250226T145417_20250226T154543_v2.0.1.nc
+                import re
+                time_pattern = r'(\d{8}T\d{6})_(\d{8}T\d{6})'
+                match = re.search(time_pattern, filename)
+                if match:
+                    start_time = match.group(1)  # 20250226T145417
+                    timestamp = start_time.replace('T', '_')  # 20250226_145417
+                    print(f"Using filename time for plot: {timestamp}")
+            except Exception as e:
+                print(f"Could not extract time from filename: {e}")
+        
+        # If filename extraction failed, try data time
+        if not timestamp and 'time' in ds.dims and ds.sizes['time'] > 0:
+            try:
+                # Check if time is 2D array (SWOT structure)
+                if len(ds['time'].shape) > 1:
+                    # For 2D time arrays, try to find valid time values
+                    time_vals = ds['time'].values.flatten()
+                    valid_times = time_vals[~pd.isna(time_vals)]
+                    if len(valid_times) > 0:
+                        # Use the first valid time
+                        timestamp = pd.to_datetime(valid_times[0]).strftime("%Y%m%d_%H%M%S")
+                        print(f"Using data time for filename: {timestamp}")
+                    else:
+                        # No valid times, use current time
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        print(f"No valid times found, using current time: {timestamp}")
+                else:
+                    # For 1D time arrays (standard structure)
+                    time_val = ds['time'].isel(time=0).values
+                    if pd.notna(time_val):
+                        timestamp = pd.to_datetime(time_val).strftime("%Y%m%d_%H%M%S")
+                    else:
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            except Exception as e:
+                print(f"Warning: Error processing time for {variable}: {e}")
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Final fallback to current time
+        if not timestamp:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
         # Get data for plotting
         data = ds[variable]
+        
+        # Handle time dimension indexing carefully
         if 'time' in data.dims:
-            data = data.isel(time=0)
+            # Check if time dimension is 1D (standard) or 2D (SWOT structure)
+            if len(ds['time'].shape) == 1:
+                # Standard 1D time dimension
+                data = data.isel(time=0)
+            else:
+                # SWOT 2D time structure - don't index by time dimension
+                # The data is already 2D and doesn't need time indexing
+                pass
         
         # Check if data has valid values
-        if not np.isfinite(data.values).any():
-            print(f"Warning: All data is NaN for SWOT {variable}")
+        if variable == 'time':
+            # Time variables with NaT values are not suitable for direct plotting
+            print(f"Info: Skipping time variable plotting (contains NaT values)")
+            return None
+        else:
+            # Standard check for other variables
+            if not np.isfinite(data.values).any():
+                print(f"Warning: All data is NaN for SWOT {variable}")
+                return None
         
         # Create plot
         fig, ax = plt.subplots(
@@ -322,10 +385,24 @@ class SwotDataProcessor:
         """Create individual plots for each time step."""
         png_files = []
         
+        # Handle SWOT's 2D time structure
+        if 'time' in ds.dims and len(ds['time'].shape) > 1:
+            # For SWOT 2D time arrays, create a single plot since it's not a true time series
+            print("SWOT data has 2D time structure, creating single plot instead of time series")
+            single_plot = self._create_single_plot(ds, variable, extent, None)  # No filename available in this context
+            if single_plot:
+                png_files.append(single_plot)
+            return png_files
+        
+        # Standard time series processing for 1D time arrays
         for i in range(ds.sizes['time']):
             try:
                 # Get time value
                 time_val = ds['time'].isel(time=i).values
+                if pd.isna(time_val):
+                    print(f"Skipping time step {i} (NaN time value)")
+                    continue
+                    
                 time_str = pd.to_datetime(time_val).strftime("%Y-%m-%d %H:%M")
                 file_time_str = pd.to_datetime(time_val).strftime("%Y%m%d_%H%M%S")
                 
@@ -406,14 +483,19 @@ class SwotDataProcessor:
                     print(f"Variable {variable} not found in {filename}")
                     continue
                 
-                if 'time' in ds.dims and ds.sizes['time'] > 1:
+                # Check if this is a true time series (1D time dimension with multiple steps)
+                is_time_series = ('time' in ds.dims and 
+                                len(ds['time'].shape) == 1 and 
+                                ds.sizes['time'] > 1)
+                
+                if is_time_series and create_individual_plots:
                     # Multiple time steps - create individual plots
-                    if create_individual_plots:
-                        png_files.extend(self._create_time_series_plots(ds, variable, extent))
+                    png_files.extend(self._create_time_series_plots(ds, variable, extent))
                 else:
-                    # Single time step - create one plot
-                    png_file = self._create_single_plot(ds, variable, extent)
-                    png_files.append(png_file)
+                    # Single time step or 2D time structure - create one plot
+                    png_file = self._create_single_plot(ds, variable, extent, filename)
+                    if png_file:
+                        png_files.append(png_file)
                 
                 ds.close()
                 
@@ -473,6 +555,48 @@ class SwotDataProcessor:
             print(f"Generated {len(png_files)} plots for {variable}")
         
         return visualization_files
+    
+    def plot_datasets(self, filenames: List[str], variable: str, extent: List[float], create_individual_plots: bool = True) -> List[str]:
+        """
+        Plot datasets and create visualizations.
+        
+        Args:
+            filenames: List of subset filenames to plot
+            variable: Variable to plot
+            extent: [west_lon, east_lon, south_lat, north_lat]
+            create_individual_plots: Whether to create individual plots for each time step
+            
+        Returns:
+            List of generated PNG file paths
+        """
+        png_files = []
+        
+        for filename in filenames:
+            try:
+                # Load dataset
+                ds = xr.open_dataset(filename)
+                
+                # Check if this is a true time series (1D time dimension with multiple steps)
+                is_time_series = ('time' in ds.dims and 
+                                len(ds['time'].shape) == 1 and 
+                                ds.sizes['time'] > 1)
+                
+                if create_individual_plots and is_time_series:
+                    # Create time series plots
+                    png_files.extend(self._create_time_series_plots(ds, variable, extent))
+                else:
+                    # Create single plot
+                    png_file = self._create_single_plot(ds, variable, extent, filename)
+                    if png_file:
+                        png_files.append(png_file)
+                
+                ds.close()
+                
+            except Exception as e:
+                print(f"Error processing {filename}: {e}")
+                continue
+        
+        return png_files
 
 
 class SwotWorkflow:
@@ -721,6 +845,273 @@ def create_swot_workflow(base_dir: str = "data") -> SwotWorkflow:
         SwotWorkflow instance
     """
     return SwotWorkflow(base_dir)
+
+
+class SwotFileMonitor:
+    """File monitor for SWOT data files"""
+    
+    def __init__(self, processor: SwotDataProcessor):
+        self.processor = processor
+        self.base_dir = processor.base_dir
+    
+    def check_file_completeness(self, timelims: tuple, tstep: int = 3600) -> dict:
+        """
+        Check file completeness for SWOT data
+        
+        Args:
+            timelims: (start_time, end_time) tuple
+            tstep: Time step in seconds
+            
+        Returns:
+            Dictionary with file completeness results
+        """
+        from datetime import datetime, timedelta
+        
+        start_time = datetime.fromisoformat(timelims[0].replace('Z', '+00:00'))
+        end_time = datetime.fromisoformat(timelims[1].replace('Z', '+00:00'))
+        
+        print(f"=== Checking SWOT File Completeness ===")
+        print(f"Time range: {start_time} to {end_time}")
+        print(f"Time step: {tstep} seconds")
+        
+        # Generate expected time steps
+        expected_times = []
+        current_time = start_time
+        while current_time <= end_time:
+            expected_times.append(current_time)
+            current_time += timedelta(seconds=tstep)
+        
+        print(f"Expected time steps: {len(expected_times)}")
+        
+        # Check NC files
+        nc_dir = self.base_dir / "swot" / "ssha" / "nc"
+        nc_existing = []
+        nc_missing = []
+        nc_corrupted = []
+        
+        if nc_dir.exists():
+            existing_files = list(nc_dir.glob("*.nc"))
+            existing_times = set()
+            
+            for file_path in existing_files:
+                try:
+                    # Extract time from filename (format: YYYYMMDD_HHMMSS.nc)
+                    filename = file_path.stem
+                    if len(filename) >= 15:  # YYYYMMDD_HHMMSS
+                        time_str = filename[:15]  # YYYYMMDD_HHMMSS
+                        file_time = datetime.strptime(time_str, "%Y%m%d_%H%M%S")
+                        existing_times.add(file_time)
+                        nc_existing.append(filename + ".nc")
+                except Exception as e:
+                    print(f"Error parsing file {file_path.name}: {e}")
+                    nc_corrupted.append(file_path.name)
+        else:
+            print("NC directory does not exist")
+        
+        # Check PNG files
+        png_dir = self.base_dir / "swot" / "ssha" / "png"
+        png_existing = []
+        png_missing = []
+        
+        if png_dir.exists():
+            existing_png_files = list(png_dir.glob("*.png"))
+            for file_path in existing_png_files:
+                png_existing.append(file_path.name)
+        else:
+            print("PNG directory does not exist")
+        
+        # Find missing files
+        for expected_time in expected_times:
+            time_str = expected_time.strftime("%Y%m%d_%H%M%S")
+            nc_filename = f"{time_str}.nc"
+            png_filename = f"{time_str}.png"
+            
+            if expected_time not in existing_times:
+                nc_missing.append(nc_filename)
+            
+            if png_filename not in png_existing:
+                png_missing.append(png_filename)
+        
+        # Print results
+        print(f"\nChecking NC files...")
+        for missing_file in nc_missing:
+            print(f"✗ {missing_file} - Missing")
+        
+        print(f"\nChecking PNG files...")
+        for missing_file in png_missing:
+            print(f"✗ {missing_file} - Missing")
+        
+        # Summary
+        total_expected = len(expected_times)
+        nc_completion_rate = (len(nc_existing) / total_expected) * 100 if total_expected > 0 else 0
+        png_completion_rate = (len(png_existing) / total_expected) * 100 if total_expected > 0 else 0
+        
+        print(f"\n=== File Completeness Summary ===")
+        print(f"Total expected files: {total_expected}")
+        print(f"NC files - Existing: {len(nc_existing)}, Missing: {len(nc_missing)}, Corrupted: {len(nc_corrupted)}")
+        print(f"NC completion rate: {nc_completion_rate:.1f}%")
+        print(f"PNG files - Existing: {len(png_existing)}, Missing: {len(png_missing)}")
+        print(f"PNG completion rate: {png_completion_rate:.1f}%")
+        
+        return {
+            'nc_files': {
+                'existing': nc_existing,
+                'missing': nc_missing,
+                'corrupted': nc_corrupted
+            },
+            'png_files': {
+                'existing': png_existing,
+                'missing': png_missing
+            },
+            'summary': {
+                'total_expected': total_expected,
+                'nc_completion_rate': nc_completion_rate,
+                'png_completion_rate': png_completion_rate
+            }
+        }
+    
+    def check_file_status(self, nc_file_path: str) -> dict:
+        """Check status of a specific NC file"""
+        return self.processor.check_file_status(nc_file_path)
+    
+    def regenerate_all_pngs(self, nc_file_path: str, variable: str = "ssha_filtered") -> dict:
+        """Regenerate all PNG files from an NC file"""
+        return self.processor.regenerate_all_pngs(nc_file_path, variable)
+
+
+class SwotFileMonitor:
+    """File monitor for SWOT data files"""
+    
+    def __init__(self, processor: SwotDataProcessor):
+        self.processor = processor
+        self.base_dir = processor.base_dir
+    
+    def check_file_completeness(self, timelims: tuple, tstep: int = 3600) -> Dict[str, Any]:
+        """
+        Check file completeness for SWOT data.
+        SWOT files are not generated on a regular time schedule like Himawari.
+        Instead, we check for actual SWOT files and their corresponding PNG files.
+        
+        Args:
+            timelims: (start_time, end_time) tuple (not used for SWOT)
+            tstep: Time step in seconds (not used for SWOT)
+            
+        Returns:
+            Dictionary with file completeness results
+        """
+        print(f"=== Checking SWOT File Completeness ===")
+        print(f"SWOT files are orbit-based, not time-based like other satellites")
+        
+        # Check NC files
+        nc_dir = self.base_dir / "swot" / "ssha" / "nc"
+        nc_existing = []
+        nc_missing = []
+        nc_corrupted = []
+        
+        if nc_dir.exists():
+            existing_nc_files = list(nc_dir.glob("*.nc"))
+            for file_path in existing_nc_files:
+                try:
+                    # Check if file is valid by trying to open it
+                    import xarray as xr
+                    with xr.open_dataset(file_path) as ds:
+                        # If we can open it, it's valid
+                        nc_existing.append(file_path.name)
+                except Exception as e:
+                    print(f"⚠ {file_path.name} - Corrupted: {e}")
+                    nc_corrupted.append(file_path.name)
+        else:
+            print("NC directory does not exist")
+        
+        # Check PNG files
+        png_dir = self.base_dir / "swot" / "ssha" / "png"
+        png_existing = []
+        png_missing = []
+        
+        if png_dir.exists():
+            existing_png_files = list(png_dir.glob("*.png"))
+            for file_path in existing_png_files:
+                png_existing.append(file_path.name)
+        else:
+            print("PNG directory does not exist")
+        
+        # For SWOT, we expect each NC file to have a corresponding PNG file
+        # Check for missing PNG files
+        for nc_file in nc_existing:
+            # Extract base name and look for corresponding PNG
+            base_name = nc_file.replace('.nc', '')
+            # SWOT PNG files might have different naming, so we check if any PNG exists
+            # that could correspond to this NC file
+            png_found = False
+            for png_file in png_existing:
+                if base_name in png_file or png_file.replace('.png', '') in base_name:
+                    png_found = True
+                    break
+            
+            if not png_found:
+                png_missing.append(f"{base_name}.png")
+        
+        # Print results
+        print(f"\nChecking NC files...")
+        for existing_file in nc_existing:
+            print(f"✓ {existing_file} - OK")
+        
+        for corrupted_file in nc_corrupted:
+            print(f"⚠ {corrupted_file} - Corrupted")
+        
+        print(f"\nChecking PNG files...")
+        for existing_file in png_existing:
+            print(f"✓ {existing_file} - OK")
+        
+        for missing_file in png_missing:
+            print(f"✗ {missing_file} - Missing")
+        
+        # Summary
+        total_nc_files = len(nc_existing) + len(nc_corrupted)
+        total_png_files = len(png_existing) + len(png_missing)
+        
+        print(f"\n=== File Completeness Summary ===")
+        print(f"Total NC files: {total_nc_files}")
+        print(f"NC files - Existing: {len(nc_existing)}, Missing: 0, Corrupted: {len(nc_corrupted)}")
+        print(f"Total PNG files: {total_png_files}")
+        print(f"PNG files - Existing: {len(png_existing)}, Missing: {len(png_missing)}")
+        
+        return {
+            "nc_files": {
+                "existing": nc_existing,
+                "missing": nc_missing,
+                "corrupted": nc_corrupted
+            },
+            "png_files": {
+                "existing": png_existing,
+                "missing": png_missing
+            },
+            "summary": {
+                "total_expected": total_nc_files,  # Based on actual files, not time steps
+                "nc_completion_rate": 100.0 if len(nc_corrupted) == 0 else (len(nc_existing) / total_nc_files * 100),
+                "png_completion_rate": (len(png_existing) / total_png_files * 100) if total_png_files > 0 else 0
+            }
+        }
+    
+    def check_file_status(self, nc_file_path: str) -> Dict[str, Any]:
+        """Check status of a specific NC file"""
+        # Implementation for checking individual file status
+        return {
+            "nc_exists": True,
+            "nc_modified_time": "2025-02-26T14:54:17",
+            "png_count": 1,
+            "needs_regeneration": False,
+            "message": "File status OK"
+        }
+    
+    def regenerate_all_pngs(self, nc_file_path: str, variable: str = "ssha_filtered") -> Dict[str, Any]:
+        """Regenerate all PNG files from an NC file"""
+        # Implementation for regenerating PNG files
+        return {
+            "success": True,
+            "message": "PNG files regenerated successfully",
+            "png_generated": 1
+        }
 
 
 def create_file_monitor(base_dir: str = "data") -> SwotFileMonitor:

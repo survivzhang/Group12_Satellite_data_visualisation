@@ -35,10 +35,46 @@ import importlib
 import sys
 from typing import Dict, List, Optional, Any
 
-# Import Himawari processor (temporarily until full satellite API structure is ready)
-import sys
-sys.path.append('himawari_test_data')
-from himawari_processor import HimawariDataProcessor, create_file_monitor
+# Add necessary paths for satellite modules
+import os
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, os.path.join(current_dir, 'himawari_test_data'))
+sys.path.insert(0, parent_dir)  # Add parent directory to access satellites folder
+sys.path.insert(0, current_dir)   # Add current directory for relative imports
+
+# Import satellite APIs (after path setup)
+try:
+    from satellites.himawari.api import HimawariAPI
+    from satellites.sentinel3.api import Sentinel3API
+    print("✅ Himawari and Sentinel-3 APIs imported successfully")
+except ImportError as e:
+    print(f"❌ Failed to import Himawari/Sentinel-3 APIs: {e}")
+    raise
+
+# Import SWOT API with dynamic import to handle path issues
+try:
+    import importlib.util
+    swot_api_path = os.path.join(parent_dir, 'satellites', 'swot', 'api.py')
+    print(f"SWOT API path: {swot_api_path}")
+    print(f"SWOT API exists: {os.path.exists(swot_api_path)}")
+    
+    spec = importlib.util.spec_from_file_location('swot_api', swot_api_path)
+    if spec and spec.loader:
+        swot_api_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(swot_api_module)
+        SwotAPI = swot_api_module.SwotAPI
+        print("✅ SWOT API imported successfully via dynamic import")
+    else:
+        raise ImportError("Could not create spec for SWOT API")
+except Exception as e:
+    print(f"❌ Failed to import SWOT API: {e}")
+    import traceback
+    traceback.print_exc()
+    # Create a dummy SwotAPI class to prevent import errors
+    class SwotAPI:
+        def __init__(self):
+            raise RuntimeError("SWOT API not available")
 
 # Temporary models until proper satellite API structure
 from pydantic import BaseModel
@@ -76,9 +112,23 @@ class UnifiedSystemStatus(BaseModel):
     global_api: Dict[str, Any]
     satellites: Dict[str, Any]
 
-# Initialize Himawari processor and API
-himawari_processor = HimawariDataProcessor()
-himawari_monitor = create_file_monitor()
+# Initialize Himawari processor and API (lazy initialization)
+himawari_processor = None
+himawari_monitor = None
+
+def get_himawari_processor():
+    """Get global HimawariDataProcessor instance"""
+    global himawari_processor
+    if himawari_processor is None:
+        himawari_processor = HimawariDataProcessor()
+    return himawari_processor
+
+def get_himawari_monitor():
+    """Get global Himawari file monitor instance"""
+    global himawari_monitor
+    if himawari_monitor is None:
+        himawari_monitor = create_file_monitor()
+    return himawari_monitor
 
 # Global API instances to maintain task state
 _himawari_api_instance = None
@@ -105,7 +155,7 @@ def get_swot_api():
     """Get global SwotAPI instance"""
     global _swot_api_instance
     if _swot_api_instance is None:
-        from satellites.swot.api import SwotAPI
+        # Use the already imported SwotAPI class
         _swot_api_instance = SwotAPI()
     return _swot_api_instance
 

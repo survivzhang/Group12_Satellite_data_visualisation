@@ -52,6 +52,7 @@ const SATELLITE_MAPPING = {
   "sst-s3b": { satellite: "sentinel3b", parameter: "sst" },
   "chl-s3a": { satellite: "sentinel3a", parameter: "chl" },
   "chl-s3b": { satellite: "sentinel3b", parameter: "chl" },
+  "ssha-swot": { satellite: "swot", parameter: "ssha" },
 };
 
 export function useDataStore(): DataStore {
@@ -212,10 +213,12 @@ export function useDataStore(): DataStore {
         return;
       }
 
-      // 调整优先级：Sentinel-3优先，Himawari最后
+      // 调整优先级：Sentinel-3优先，SWOT其次，Himawari最后
       const sortedSatellites = availableSatellites.sort((a, b) => {
         if (a.startsWith("sentinel3") && !b.startsWith("sentinel3")) return -1;
         if (!a.startsWith("sentinel3") && b.startsWith("sentinel3")) return 1;
+        if (a === "swot" && b === "himawari") return -1;
+        if (a === "himawari" && b === "swot") return 1;
         if (a === "himawari") return 1;
         if (b === "himawari") return -1;
         return 0;
@@ -266,6 +269,24 @@ export function useDataStore(): DataStore {
                 console.log(`✅ ${satellite} processing completed`);
               }
 
+              successful++;
+            }
+          } else if (satellite === "swot") {
+            // 执行SWOT的auto-monitor-repair端点
+            console.log(
+              `⏳ Starting SWOT data update...`
+            );
+            const response = await fetch(
+              `${API_BASE_URL}/swot/auto-monitor-repair`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+              }
+            );
+
+            if (response.ok) {
+              const result = await response.json();
+              console.log(`✅ SWOT data update initiated:`, result);
               successful++;
             }
           } else if (satellite === "himawari") {
@@ -449,6 +470,41 @@ export function useDataStore(): DataStore {
             }
           }
 
+          // 检查SWOT状态
+          if (data.satellites?.swot?.available === true) {
+            try {
+              const swotCheck = await fetch(
+                `${API_BASE_URL}/swot/auto-monitor-repair`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({}),
+                }
+              );
+
+              if (swotCheck.ok) {
+                const swotData = await swotCheck.json();
+                let swotMissingCount = 0;
+                if (swotData.completeness?.results) {
+                  const results = swotData.completeness.results;
+                  swotMissingCount = 
+                    (results.nc_files?.missing?.length || 0) +
+                    (results.nc_files?.corrupted?.length || 0) +
+                    (results.png_files?.missing?.length || 0);
+                }
+                currentMissingFiles += swotMissingCount;
+                console.log(
+                  `SWOT completeness check: ${swotMissingCount} missing files detected`
+                );
+              }
+            } catch (e) {
+              console.warn(
+                `Could not check SWOT completeness during update:`,
+                e
+              );
+            }
+          }
+
           setMissingFiles(currentMissingFiles);
         }
       } catch (error) {
@@ -511,6 +567,8 @@ export function useDataStore(): DataStore {
           apiPath = `${API_BASE_URL}/himawari/files/${fileType}`;
         } else if (satellite.startsWith("sentinel3")) {
           apiPath = `${API_BASE_URL}/sentinel3/files/${satellite}/${parameter}/${fileType}`;
+        } else if (satellite === "swot") {
+          apiPath = `${API_BASE_URL}/swot/files?file_type=${fileType}`;
         } else {
           console.warn(`Unsupported satellite: ${satellite}`);
           return [];
