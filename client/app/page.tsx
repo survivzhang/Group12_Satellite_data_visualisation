@@ -175,7 +175,6 @@ export default function NingalooResearchApp() {
   };
 
   const removeMapInstance = (id: string) => {
-    if (mapInstances.length <= 1) return;
     setMapInstances((prev) => prev.filter((m) => m.id !== id));
     if (fullscreenMap === id) setFullscreenMap(null);
   };
@@ -239,7 +238,7 @@ export default function NingalooResearchApp() {
                 variant="outline"
                 size="sm"
                 onClick={() => setFullscreenMap(null)}
-                className="absolute right-4 top-3 h-9 w-9 p-0 hover:bg-gray-100"
+                className="absolute right-4 top-3 h-9 w-9 p-0 bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 opacity-100"
                 title="Exit Fullscreen"
               >
                 <Minimize2 className="h-4 w-4" />
@@ -361,7 +360,7 @@ export default function NingalooResearchApp() {
                         variant="outline"
                         size="sm"
                         onClick={() => toggleFullscreen(instance.id)}
-                        className="h-8 w-8 p-0"
+                        className="h-8 w-8 p-0 bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 opacity-100"
                         title="Fullscreen"
                       >
                         <Maximize2 className="h-4 w-4" />
@@ -370,7 +369,7 @@ export default function NingalooResearchApp() {
                         variant="outline"
                         size="sm"
                         onClick={() => removeMapInstance(instance.id)}
-                        className="h-8 w-8 p-0"
+                        className="h-8 w-8 p-0 bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 opacity-100"
                         title="Remove Map"
                       >
                         <X className="h-4 w-4" />
