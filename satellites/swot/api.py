@@ -582,8 +582,8 @@ class SwotAPI(BaseSatelliteAPI):
                     "body": {
                         "satellite": "swot",
                         "parameter": "ssha",
-                        "start_time": "2025-03-01T00:00:00",
-                        "end_time": "2025-03-01T12:00:00",
+                        "start_time": "2025-09-12T00:00:00",
+                        "end_time": datetime.utcnow().isoformat(),
                         "west_lon": 111.0,
                         "east_lon": 114.0,
                         "south_lat": -25.0,
@@ -594,8 +594,8 @@ class SwotAPI(BaseSatelliteAPI):
                     "method": "POST",
                     "url": "/check-files",
                     "body": {
-                        "start_time": "2025-03-01T00:00:00",
-                        "end_time": "2025-03-01T12:00:00",
+                        "start_time": "2025-09-12T00:00:00",
+                        "end_time": datetime.utcnow().isoformat(),
                         "tstep": 3600
                     }
                 },
@@ -603,8 +603,8 @@ class SwotAPI(BaseSatelliteAPI):
                     "method": "POST",
                     "url": "/repair-files",
                     "body": {
-                        "start_time": "2025-03-01T00:00:00",
-                        "end_time": "2025-03-01T12:00:00",
+                        "start_time": "2025-09-12T00:00:00",
+                        "end_time": datetime.utcnow().isoformat(),
                         "west_lon": 111.0,
                         "east_lon": 114.0,
                         "south_lat": -25.0,
@@ -624,8 +624,8 @@ class SwotAPI(BaseSatelliteAPI):
         """Check file completeness for SWOT data"""
         try:
             # Use file monitor to check completeness
-            start_time = data.get("start_time", "2025-03-01T00:00:00")
-            end_time = data.get("end_time", "2025-03-01T12:00:00")
+            start_time = data.get("start_time", "2025-09-12T00:00:00")
+            end_time = data.get("end_time", datetime.utcnow().isoformat())
             tstep = data.get("tstep", 3600)  # 1 hour in seconds
             
             results = self.file_monitor.check_file_completeness(
@@ -678,8 +678,8 @@ class SwotAPI(BaseSatelliteAPI):
             self.tasks[task_id]["progress"] = 10
             
             # Set up repair parameters
-            start_time = data.get("start_time", "2025-03-01T00:00:00")
-            end_time = data.get("end_time", "2025-03-01T12:00:00")
+            start_time = data.get("start_time", "2025-09-12T00:00:00")
+            end_time = data.get("end_time", datetime.utcnow().isoformat())
             west_lon = data.get("west_lon", 111.0)
             east_lon = data.get("east_lon", 114.0)
             south_lat = data.get("south_lat", -25.0)
@@ -732,8 +732,8 @@ class SwotAPI(BaseSatelliteAPI):
             # SWOT直接执行更新，不进行预先检查
             # 因为SWOT是轨道卫星，数据按轨道周期更新，不是按固定时间步长
             repair_data = {
-                "start_time": "2025-03-01T00:00:00",  # 使用实际SWOT数据时间范围
-                "end_time": "2025-03-01T23:59:59",
+                "start_time": "2025-09-12T00:00:00",  # 使用实际SWOT数据时间范围
+                "end_time": datetime.utcnow().isoformat(),
                 "west_lon": 111.0,
                 "east_lon": 114.0,
                 "south_lat": -25.0,
