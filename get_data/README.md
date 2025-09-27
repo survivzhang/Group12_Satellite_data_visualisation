@@ -7,7 +7,11 @@
 ```bash
 # Activate virtual environment
 source venv/bin/activate
-
+#For windows
+#create virtual enviroment
+python -m venv venv
+#Then activate it
+venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 ```

@@ -107,8 +107,8 @@ export function useDataStore(): DataStore {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  start_time: "2025-03-01T00:00:00",
-                  end_time: "2025-03-01T12:00:00",
+                  start_time: "2025-09-12T00:00:00",
+                  end_time: new Date().toISOString(),
                   time_step_hours: 1,
                   check_nc: true,
                   check_png: true,
@@ -245,8 +245,8 @@ export function useDataStore(): DataStore {
                 body: JSON.stringify({
                   satellite: satellite,
                   parameter: "sst", // 先下载SST数据
-                  start_time: "2025-03-01T00:00:00.000Z",
-                  end_time: "2025-03-01T12:00:00.000Z",
+                  start_time: "2025-09-12T00:00:00.000Z",
+                  end_time: new Date().toISOString(),
                   west_lon: 111.0,
                   east_lon: 114.0,
                   south_lat: -25.0,
@@ -396,8 +396,8 @@ export function useDataStore(): DataStore {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  start_time: "2025-03-01T00:00:00",
-                  end_time: "2025-03-01T12:00:00",
+                  start_time: "2025-09-12T00:00:00",
+                  end_time: new Date().toISOString(),
                   time_step_hours: 1,
                   check_nc: true,
                   check_png: true,
@@ -561,24 +561,19 @@ export function useDataStore(): DataStore {
 
         const { satellite, parameter } = mapping;
 
-        // 使用新的统一API路径
-        let apiPath = "";
-        if (satellite === "himawari") {
-          apiPath = `${API_BASE_URL}/himawari/files/${fileType}`;
-        } else if (satellite.startsWith("sentinel3")) {
-          apiPath = `${API_BASE_URL}/sentinel3/files/${satellite}/${parameter}/${fileType}`;
-        } else if (satellite === "swot") {
-          apiPath = `${API_BASE_URL}/swot/files?file_type=${fileType}`;
-        } else {
-          console.warn(`Unsupported satellite: ${satellite}`);
-          return [];
-        }
+        // 使用统一API路径
+        const apiPath = `${API_BASE_URL}/api/v1/satellites/${satellite}/${parameter}/${fileType}`;
 
         const response = await fetch(apiPath);
 
         if (response.ok) {
           const data = await response.json();
-          return data.files || [];
+          // 将directory信息添加到每个文件对象中，以便前端可以构建完整路径
+          const filesWithDirectory = (data.files || []).map((file: any) => ({
+            ...file,
+            directory: data.directory // 添加完整目录路径
+          }));
+          return filesWithDirectory;
         } else {
           console.error(
             `Failed to fetch ${fileType} files for ${paramId}:`,
