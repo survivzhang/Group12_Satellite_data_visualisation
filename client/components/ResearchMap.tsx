@@ -277,7 +277,7 @@ export function ResearchMap({
                   console.warn("getFiles function not available");
                   ncFilename = getSentinel3FallbackFilename(parameter);
                 } else {
-                  const ncFiles = await getFiles(parameter, "nc");
+                  const ncFiles = await getFiles?.(parameter, "nc");
                   if (ncFiles && ncFiles.length > 0) {
                     // Sentinel-3通常只有一个NC文件包含整个查询时间范围的数据
                     ncFilename = ncFiles[0].filename;
