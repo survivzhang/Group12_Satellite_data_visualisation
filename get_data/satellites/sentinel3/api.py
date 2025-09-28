@@ -29,6 +29,28 @@ from satellites.shared.utils import get_system_info, get_file_count
 class Sentinel3API(BaseSatelliteAPI):
     """Sentinel-3 satellite API implementation"""
     
+    # Parameter configuration for Sentinel-3
+    PARAMETER_CONFIGS = {
+        "sst": {
+            "var_names": [
+                "copernicus_sentinel3a_slstr_l2p_sst_fullres",
+                "copernicus_sentinel3b_slstr_l2p_sst_fullres"
+            ],
+            "unit": "K",
+            "colormap": "turbo",
+            "description": "Sea Surface Temperature"
+        },
+        "chl": {
+            "var_names": [
+                "copernicus_sentinel3a_olci_l2_chl_fullres",
+                "copernicus_sentinel3b_olci_l2_chl_fullres"
+            ],
+            "unit": "mg/m³",
+            "colormap": "viridis",
+            "description": "Chlorophyll-a Concentration"
+        }
+    }
+    
     def __init__(self):
         # Use unified directory structure: data/
         unified_base_dir = Path(__file__).parent.parent.parent / "data"
@@ -298,6 +320,8 @@ class Sentinel3API(BaseSatelliteAPI):
                 return await self._auto_check_and_regenerate(data)
             elif path == "check-freshness" and data:
                 return await self._check_data_freshness(data)
+            elif path == "incremental-update" and data:
+                return await self._run_incremental_update(data, background_tasks)
             elif path.startswith("describe-coverage/"):
                 layer_key = path.split("/", 1)[1]
                 return await self._describe_coverage(layer_key)
@@ -316,12 +340,29 @@ class Sentinel3API(BaseSatelliteAPI):
             self.tasks[task_id]["message"] = "Processing Sentinel-3 data..."
             self.tasks[task_id]["progress"] = 10
             
-            # Run the actual processing using the workflow
+            # Format time strings for EUMETView API (remove microseconds)
+            from datetime import datetime
+            
+            # Parse and reformat start_time
+            try:
+                start_dt = datetime.fromisoformat(request.start_time.replace('Z', '+00:00'))
+                formatted_start_time = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            except:
+                formatted_start_time = request.start_time
+            
+            # Parse and reformat end_time
+            try:
+                end_dt = datetime.fromisoformat(request.end_time.replace('Z', '+00:00'))
+                formatted_end_time = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            except:
+                formatted_end_time = request.end_time
+            
+            # Run the actual processing using the workflow with incremental download
             await asyncio.to_thread(
                 self.workflow.run_complete_workflow,
                 layer_keys=layer_keys,
                 region=(request.west_lon, request.south_lat, request.east_lon, request.north_lat),
-                time_range=(request.start_time, request.end_time),
+                time_range=(formatted_start_time, formatted_end_time),
                 consumer_key=request.consumer_key,
                 consumer_secret=request.consumer_secret
             )
@@ -634,6 +675,73 @@ class Sentinel3API(BaseSatelliteAPI):
         except Exception as e:
             return {"error": str(e)}
     
+    async def _run_incremental_update(self, data: Dict[str, Any], background_tasks: BackgroundTasks) -> Dict[str, Any]:
+        """Run incremental update for all Sentinel-3 parameters"""
+        try:
+            import uuid
+            task_id = str(uuid.uuid4())
+            
+            # Store task info
+            self.tasks[task_id] = {
+                "status": "pending",
+                "message": "Incremental update task queued",
+                "progress": 0,
+                "satellite": "sentinel3",
+                "layer_keys": ['sentinel3a_sst', 'sentinel3a_chl', 'sentinel3b_sst', 'sentinel3b_chl']
+            }
+            
+            # Add background task
+            background_tasks.add_task(
+                self._run_incremental_update_task,
+                task_id,
+                data
+            )
+            
+            return {
+                "task_id": task_id,
+                "status": "pending",
+                "message": "Incremental update started for all Sentinel-3 parameters",
+                "satellite": "sentinel3"
+            }
+            
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def _run_incremental_update_task(self, task_id: str, data: Dict[str, Any]):
+        """Background task for incremental update"""
+        try:
+            # Update status
+            self.tasks[task_id]["status"] = "processing"
+            self.tasks[task_id]["message"] = "Running incremental update..."
+            self.tasks[task_id]["progress"] = 10
+            
+            # Get region from data or use default
+            region = (
+                data.get("west_lon", 111.0),
+                data.get("south_lat", -25.0),
+                data.get("east_lon", 114.0),
+                data.get("north_lat", -20.0)
+            )
+            
+            # Run incremental update
+            await asyncio.to_thread(
+                self.workflow.run_incremental_update,
+                region=region,
+                consumer_key=data.get("consumer_key"),
+                consumer_secret=data.get("consumer_secret")
+            )
+            
+            # Mark as completed
+            self.tasks[task_id]["status"] = "completed"
+            self.tasks[task_id]["message"] = "Incremental update completed successfully"
+            self.tasks[task_id]["progress"] = 100
+            
+        except Exception as e:
+            # Mark as failed
+            self.tasks[task_id]["status"] = "failed"
+            self.tasks[task_id]["message"] = f"Incremental update failed: {str(e)}"
+            self.tasks[task_id]["progress"] = 0
+    
     async def _get_test_endpoints(self) -> Dict[str, Any]:
         """Get test endpoints information"""
         return {
@@ -647,7 +755,8 @@ class Sentinel3API(BaseSatelliteAPI):
                 "GET /test-endpoints": "This test page",
                 "POST /check-file": "Check file status (requires nc_file_path in JSON body)",
                 "POST /regenerate-pngs": "Regenerate PNGs (requires nc_file_path in JSON body)",
-                "POST /auto-check-regenerate": "Auto check and regenerate (requires nc_file_path in JSON body)"
+                "POST /auto-check-regenerate": "Auto check and regenerate (requires nc_file_path in JSON body)",
+                "POST /incremental-update": "Run incremental update for all Sentinel-3 parameters"
             },
             "example_usage": {
                 "check_file": {
@@ -663,3 +772,131 @@ class Sentinel3API(BaseSatelliteAPI):
             },
             "note": "Use /docs for interactive API documentation"
         }
+    
+    def find_first_valid_timepoint(self, data_var):
+        """Find the first time point with valid data for Sentinel-3"""
+        import numpy as np
+        
+        # Handle both xarray and numpy array inputs
+        if hasattr(data_var, 'values'):
+            data_array = data_var.values
+        else:
+            data_array = data_var
+            
+        if len(data_array.shape) <= 2:
+            return data_array
+        
+        for i in range(data_array.shape[0]):
+            time_data = data_array[i]
+            valid_data = time_data[~np.isnan(time_data)]
+            if len(valid_data) > 0:
+                return time_data
+        
+        # If no valid data found, return first time point
+        return data_array[0]
+    
+    def get_parameter_config(self, parameter: str) -> dict:
+        """Get parameter configuration for Sentinel-3"""
+        return self.PARAMETER_CONFIGS.get(parameter, {})
+    
+    def get_parameter_var_names(self, parameter: str) -> list:
+        """Get variable names for a specific parameter"""
+        config = self.get_parameter_config(parameter)
+        return config.get("var_names", [])
+    
+    def get_parameter_unit(self, parameter: str) -> str:
+        """Get unit for a specific parameter"""
+        config = self.get_parameter_config(parameter)
+        return config.get("unit", "unknown")
+    
+    def get_parameter_colormap(self, parameter: str) -> str:
+        """Get colormap for a specific parameter"""
+        config = self.get_parameter_config(parameter)
+        return config.get("colormap", "viridis")
+    
+    def find_data_variable(self, ds, parameter: str):
+        """Find the data variable for a specific parameter in the dataset"""
+        var_names = self.get_parameter_var_names(parameter)
+        
+        for var_name in var_names:
+            if var_name in ds.data_vars:
+                return ds[var_name]
+        
+        return None
+
+    def get_sentinel3_data(self, data_var, target_time=None, time_coords=None):
+        """Get data for Sentinel-3 with proper time point selection logic - matches static image logic"""
+        import numpy as np
+        
+        # Handle both xarray and numpy array inputs
+        if hasattr(data_var, 'values'):
+            data_array = data_var.values
+        else:
+            data_array = data_var
+        
+        # Handle multi-time data (like Sentinel-3)
+        if len(data_array.shape) > 2:  # Multi-time data
+            if target_time and time_coords is not None:
+                # Find the most recent time point BEFORE or equal to target_time (matches static image logic)
+                from datetime import datetime
+                try:
+                    target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
+                    target_timestamp = target_dt.timestamp()
+                    
+                    # Convert time coordinates to timestamps and find valid candidates
+                    valid_candidates = []
+                    for i, time_coord in enumerate(time_coords):
+                        time_timestamp = np.datetime64(time_coord).astype('datetime64[s]').astype(float)
+                        # Only consider times that are <= target_time (same as static image logic)
+                        if time_timestamp <= target_timestamp:
+                            # Check if this time slice has valid data
+                            time_slice_data = data_array[i]
+                            valid_data = time_slice_data[~np.isnan(time_slice_data)]
+                            if len(valid_data) > 0:  # Has valid data
+                                time_diff = target_timestamp - time_timestamp
+                                valid_candidates.append((i, time_diff, time_coord))
+                    
+                    if valid_candidates:
+                        # Sort by time difference (smallest first = most recent before target_time)
+                        valid_candidates.sort(key=lambda x: x[1])
+                        best_idx = valid_candidates[0][0]
+                        best_time = valid_candidates[0][2]
+                        data = data_array[best_idx]
+                        
+                        print(f"Sentinel-3 Canvas: Selected time slice at index {best_idx} "
+                              f"(time: {best_time}) for target {target_time}")
+                        
+                        return data
+                    else:
+                        # No valid data found before target_time, fallback to first valid
+                        print(f"No valid data found before target_time {target_time}, using first valid time point...")
+                        return self.find_first_valid_timepoint(data_var)
+                        
+                except Exception as e:
+                    print(f"Error parsing target_time {target_time}: {e}")
+                    # Fallback to first valid time point
+                    return self.find_first_valid_timepoint(data_var)
+            else:
+                # No target_time specified, use first valid time point
+                return self.find_first_valid_timepoint(data_var)
+        else:
+            # Single time data
+            return data_array
+    
+    def _find_closest_time_data(self, data_var, target_dt):
+        """Find the closest time point data for Sentinel-3"""
+        import numpy as np
+        
+        # This is a simplified version - in practice, we'd need access to the time coordinates
+        # For now, we'll use the first time point as fallback
+        # TODO: Implement proper time matching when we have access to time coordinates
+        data = data_var.values[0]
+        
+        # Check if the first time point has valid data
+        valid_data = data[~np.isnan(data)]
+        if len(valid_data) == 0:
+            # If first time point has no valid data, try other time points
+            print(f"First time point has no valid data, trying other time points...")
+            data = self.find_first_valid_timepoint(data_var)
+        
+        return data

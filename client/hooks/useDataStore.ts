@@ -52,6 +52,7 @@ const SATELLITE_MAPPING = {
   "sst-s3b": { satellite: "sentinel3b", parameter: "sst" },
   "chl-s3a": { satellite: "sentinel3a", parameter: "chl" },
   "chl-s3b": { satellite: "sentinel3b", parameter: "chl" },
+  "ssha-swot": { satellite: "swot", parameter: "ssha" },
 };
 
 export function useDataStore(): DataStore {
@@ -106,8 +107,8 @@ export function useDataStore(): DataStore {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  start_time: "2025-03-01T00:00:00",
-                  end_time: "2025-03-01T12:00:00",
+                  start_time: "2025-09-12T00:00:00",
+                  end_time: new Date().toISOString(),
                   time_step_hours: 1,
                   check_nc: true,
                   check_png: true,
@@ -212,10 +213,12 @@ export function useDataStore(): DataStore {
         return;
       }
 
-      // 调整优先级：Sentinel-3优先，Himawari最后
+      // 调整优先级：Sentinel-3优先，SWOT其次，Himawari最后
       const sortedSatellites = availableSatellites.sort((a, b) => {
         if (a.startsWith("sentinel3") && !b.startsWith("sentinel3")) return -1;
         if (!a.startsWith("sentinel3") && b.startsWith("sentinel3")) return 1;
+        if (a === "swot" && b === "himawari") return -1;
+        if (a === "himawari" && b === "swot") return 1;
         if (a === "himawari") return 1;
         if (b === "himawari") return -1;
         return 0;
@@ -242,8 +245,8 @@ export function useDataStore(): DataStore {
                 body: JSON.stringify({
                   satellite: satellite,
                   parameter: "sst", // 先下载SST数据
-                  start_time: "2025-03-01T00:00:00.000Z",
-                  end_time: "2025-03-01T12:00:00.000Z",
+                  start_time: "2025-09-12T00:00:00.000Z",
+                  end_time: new Date().toISOString(),
                   west_lon: 111.0,
                   east_lon: 114.0,
                   south_lat: -25.0,
@@ -266,6 +269,24 @@ export function useDataStore(): DataStore {
                 console.log(`✅ ${satellite} processing completed`);
               }
 
+              successful++;
+            }
+          } else if (satellite === "swot") {
+            // 执行SWOT的auto-monitor-repair端点
+            console.log(
+              `⏳ Starting SWOT data update...`
+            );
+            const response = await fetch(
+              `${API_BASE_URL}/swot/auto-monitor-repair`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+              }
+            );
+
+            if (response.ok) {
+              const result = await response.json();
+              console.log(`✅ SWOT data update initiated:`, result);
               successful++;
             }
           } else if (satellite === "himawari") {
@@ -375,8 +396,8 @@ export function useDataStore(): DataStore {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  start_time: "2025-03-01T00:00:00",
-                  end_time: "2025-03-01T12:00:00",
+                  start_time: "2025-09-12T00:00:00",
+                  end_time: new Date().toISOString(),
                   time_step_hours: 1,
                   check_nc: true,
                   check_png: true,
@@ -449,6 +470,41 @@ export function useDataStore(): DataStore {
             }
           }
 
+          // 检查SWOT状态
+          if (data.satellites?.swot?.available === true) {
+            try {
+              const swotCheck = await fetch(
+                `${API_BASE_URL}/swot/auto-monitor-repair`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({}),
+                }
+              );
+
+              if (swotCheck.ok) {
+                const swotData = await swotCheck.json();
+                let swotMissingCount = 0;
+                if (swotData.completeness?.results) {
+                  const results = swotData.completeness.results;
+                  swotMissingCount = 
+                    (results.nc_files?.missing?.length || 0) +
+                    (results.nc_files?.corrupted?.length || 0) +
+                    (results.png_files?.missing?.length || 0);
+                }
+                currentMissingFiles += swotMissingCount;
+                console.log(
+                  `SWOT completeness check: ${swotMissingCount} missing files detected`
+                );
+              }
+            } catch (e) {
+              console.warn(
+                `Could not check SWOT completeness during update:`,
+                e
+              );
+            }
+          }
+
           setMissingFiles(currentMissingFiles);
         }
       } catch (error) {
@@ -505,22 +561,19 @@ export function useDataStore(): DataStore {
 
         const { satellite, parameter } = mapping;
 
-        // 使用新的统一API路径
-        let apiPath = "";
-        if (satellite === "himawari") {
-          apiPath = `${API_BASE_URL}/himawari/files/${fileType}`;
-        } else if (satellite.startsWith("sentinel3")) {
-          apiPath = `${API_BASE_URL}/sentinel3/files/${satellite}/${parameter}/${fileType}`;
-        } else {
-          console.warn(`Unsupported satellite: ${satellite}`);
-          return [];
-        }
+        // 使用统一API路径
+        const apiPath = `${API_BASE_URL}/api/v1/satellites/${satellite}/${parameter}/${fileType}`;
 
         const response = await fetch(apiPath);
 
         if (response.ok) {
           const data = await response.json();
-          return data.files || [];
+          // 将directory信息添加到每个文件对象中，以便前端可以构建完整路径
+          const filesWithDirectory = (data.files || []).map((file: any) => ({
+            ...file,
+            directory: data.directory // 添加完整目录路径
+          }));
+          return filesWithDirectory;
         } else {
           console.error(
             `Failed to fetch ${fileType} files for ${paramId}:`,
