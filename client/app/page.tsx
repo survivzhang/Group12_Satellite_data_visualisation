@@ -301,21 +301,23 @@ export default function NingalooResearchApp() {
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-6">
           <Card className="w-full h-full max-w-7xl overflow-hidden bg-white/85 backdrop-blur-md border border-white/20 shadow-xl flex flex-col">
             <CardHeader className="relative pb-4 flex items-center justify-center border-b">
-              <CardTitle className="text-xl font-semibold text-slate-800 flex items-center gap-3">
+              <CardTitle className="text-xl font-semibold text-white flex items-center gap-3">
                 <MapIcon className="h-6 w-6 flex-shrink-0" />
                 <span className="truncate">
                   {mapInstances.find((m) => m.id === fullscreenMap)?.title}
                 </span>
               </CardTitle>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setFullscreenMap(null)}
-                className="absolute right-4 top-3 h-9 w-9 p-0 bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 opacity-100"
-                title="Exit Fullscreen"
-              >
-                <Minimize2 className="h-4 w-4" />
-              </Button>
+              {mapInstances.length > 1 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFullscreenMap(null)}
+                  className="absolute right-4 top-3 h-9 w-9 p-0 bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 opacity-100"
+                  title="Exit Fullscreen"
+                >
+                  <Minimize2 className="h-4 w-4" />
+                </Button>
+              )}
             </CardHeader>
             <CardContent className="flex-1 flex flex-col p-4">
               {mapInstances
@@ -442,15 +444,17 @@ export default function NingalooResearchApp() {
                       >
                         <Maximize2 className="h-4 w-4" />
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => removeMapInstance(instance.id)}
-                        className="h-8 w-8 p-0 bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 opacity-100"
-                        title="Remove Map"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
+                      {mapInstances.length > 1 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => removeMapInstance(instance.id)}
+                          className="h-8 w-8 p-0 bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 opacity-100"
+                          title="Remove Map"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </CardHeader>
