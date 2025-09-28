@@ -21,25 +21,176 @@ interface TimelineSliderProps {
   variant?: "glass";
 }
 
-export function TimelineSlider({ timeRange, onChange, variant = "glass" }: TimelineSliderProps) {
+export function TimelineSlider({
+  timeRange,
+  onChange,
+  variant = "glass",
+}: TimelineSliderProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentPosition, setCurrentPosition] = useState(0);
   const lastTimeRef = useRef<number>(0);
 
   const granularityOptions = [
-    { id: "months", label: "Months", duration: 30 * 24 * 60 * 60 * 1000 },
-    { id: "weeks", label: "Weeks", duration: 7 * 24 * 60 * 60 * 1000 },
-    { id: "days", label: "Days", duration: 24 * 60 * 60 * 1000 },
-    { id: "hours", label: "Hours", duration: 60 * 60 * 1000 },
+    { id: "day", label: "Day (24h)", duration: 24 * 60 * 60 * 1000 },
+    { id: "week", label: "Week (7 days)", duration: 7 * 24 * 60 * 60 * 1000 },
+    { id: "all", label: "All Data", duration: null },
   ];
 
   const currentGranularity =
-    granularityOptions.find((g) => g.id === timeRange.granularity) || granularityOptions[3];
+    granularityOptions.find((g) => g.id === timeRange.granularity) ||
+    granularityOptions[0];
 
-  // Fixed date range: September 12, 2025 to now
-  const fixedStartDate = new Date("2025-09-12T00:00:00Z");
-  const fixedEndDate = new Date();
-  const totalDuration = fixedEndDate.getTime() - fixedStartDate.getTime();
+  // 动态获取数据时间范围
+  const [dataTimeRange, setDataTimeRange] = useState<{
+    start: Date;
+    end: Date;
+  } | null>(null);
+
+  // 获取数据时间范围的函数 - 获取所有参数的并集时间范围
+  const fetchDataTimeRange = async () => {
+    try {
+      // 定义所有参数
+      const allParameters = [
+        { satellite: "himawari", parameter: "sst" },
+        { satellite: "sentinel3a", parameter: "sst" },
+        { satellite: "sentinel3b", parameter: "sst" },
+        { satellite: "sentinel3a", parameter: "chl" },
+        { satellite: "sentinel3b", parameter: "chl" },
+      ];
+
+      const allTimes: Date[] = [];
+
+      // 获取所有参数的时间范围
+      for (const param of allParameters) {
+        try {
+          const response = await fetch(
+            `http://localhost:8000/api/v1/satellites/${param.satellite}/${param.parameter}/files`
+          );
+          if (response.ok) {
+            const files = await response.json();
+            if (files && files.length > 0) {
+              // 解析文件名获取时间
+              const times = files
+                .map((file: any) => {
+                  let fileTime: Date | null = null;
+
+                  if (param.satellite === "himawari") {
+                    // Himawari 文件格式: YYYYMMDDHHMMSS.png
+                    const timeMatch =
+                      file.filename.match(/(\d{8})(\d{6})\.png$/);
+                    if (timeMatch) {
+                      const dateStr = timeMatch[1];
+                      const timeStr = timeMatch[2];
+                      const year = dateStr.substring(0, 4);
+                      const month = dateStr.substring(4, 6);
+                      const day = dateStr.substring(6, 8);
+                      const hour = timeStr.substring(0, 2);
+                      const minute = timeStr.substring(2, 4);
+                      const second = timeStr.substring(4, 6);
+                      fileTime = new Date(
+                        `${year}-${month}-${day}T${hour}:${minute}:${second}Z`
+                      );
+                    }
+                  } else {
+                    // Sentinel-3 文件格式: YYYYMMDD_HHMMSS.png
+                    const timeMatch = file.filename.match(
+                      /(\d{8})_(\d{6})\.png$/
+                    );
+                    if (timeMatch) {
+                      const dateStr = timeMatch[1];
+                      const timeStr = timeMatch[2];
+                      const year = dateStr.substring(0, 4);
+                      const month = dateStr.substring(4, 6);
+                      const day = dateStr.substring(6, 8);
+                      const hour = timeStr.substring(0, 2);
+                      const minute = timeStr.substring(2, 4);
+                      const second = timeStr.substring(4, 6);
+                      fileTime = new Date(
+                        `${year}-${month}-${day}T${hour}:${minute}:${second}Z`
+                      );
+                    }
+                  }
+                  return fileTime;
+                })
+                .filter((time: Date | null) => time !== null);
+
+              allTimes.push(...times);
+            }
+          }
+        } catch (error) {
+          console.warn(
+            `Failed to fetch files for ${param.satellite} ${param.parameter}:`,
+            error
+          );
+        }
+      }
+
+      // 计算并集时间范围
+      if (allTimes.length > 0) {
+        allTimes.sort((a: Date, b: Date) => a.getTime() - b.getTime());
+        setDataTimeRange({
+          start: allTimes[0],
+          end: allTimes[allTimes.length - 1],
+        });
+        console.log(
+          `Data time range: ${allTimes[0].toISOString()} to ${allTimes[
+            allTimes.length - 1
+          ].toISOString()}`
+        );
+      } else {
+        // 如果没有获取到任何数据，使用默认时间范围
+        setDataTimeRange({
+          start: new Date("2025-09-12T00:00:00Z"),
+          end: new Date(),
+        });
+      }
+    } catch (error) {
+      console.error("Failed to fetch data time range:", error);
+      // 使用默认时间范围作为fallback
+      setDataTimeRange({
+        start: new Date("2025-09-12T00:00:00Z"),
+        end: new Date(),
+      });
+    }
+  };
+
+  // 在组件挂载时获取数据时间范围
+  useEffect(() => {
+    fetchDataTimeRange();
+  }, []);
+
+  // 使用数据时间范围或默认值
+  const fixedStartDate =
+    dataTimeRange?.start || new Date("2025-09-12T00:00:00Z");
+  const fixedEndDate = dataTimeRange?.end || new Date();
+  const fullDuration = fixedEndDate.getTime() - fixedStartDate.getTime();
+
+  // 根据当前模式计算时间轴范围
+  const getTimeRange = () => {
+    if (timeRange.granularity === "day") {
+      // Day 模式：显示当天的24小时（00:00-23:59 UTC）
+      const today = new Date();
+      const dayStart = new Date(today);
+      dayStart.setUTCHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setUTCHours(23, 59, 59, 999);
+      return { start: dayStart, end: dayEnd };
+    } else if (timeRange.granularity === "week") {
+      // Week 模式：基于当前时间显示7天范围（UTC）
+      const today = new Date();
+      const weekEnd = new Date(today);
+      const weekStart = new Date(weekEnd);
+      weekStart.setDate(weekStart.getDate() - 6); // 改为6天，包含今天
+      return { start: weekStart, end: weekEnd };
+    } else {
+      // All 模式：显示完整时间范围
+      return { start: fixedStartDate, end: fixedEndDate };
+    }
+  };
+
+  const timeRange_actual = getTimeRange();
+  const totalDuration =
+    timeRange_actual.end.getTime() - timeRange_actual.start.getTime();
 
   // Auto-play functionality
   useEffect(() => {
@@ -59,58 +210,113 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
 
   // Update time range based on position
   useEffect(() => {
-    const currentTime = new Date(
-      fixedStartDate.getTime() + (totalDuration * currentPosition) / 100
-    );
+    let currentTime;
+
+    if (timeRange.granularity === "all") {
+      // All模式：基于完整时间范围计算当前时间
+      currentTime = new Date(
+        fixedStartDate.getTime() + (fullDuration * currentPosition) / 1000
+      );
+    } else {
+      // Day和Week模式：基于各自的时间范围计算当前时间
+      currentTime = new Date(
+        timeRange_actual.start.getTime() +
+          (totalDuration * currentPosition) / 1000
+      );
+    }
+
     const currentTimeMs = currentTime.getTime();
 
     // Only call onChange if time really changed (avoid repeat calls)
     if (Math.abs(currentTimeMs - lastTimeRef.current) > 1000) {
       lastTimeRef.current = currentTimeMs;
 
-      // For PNG display, we want the exact current time as the start time
-      const windowSize = currentGranularity.duration;
-      const windowEnd = new Date(currentTime.getTime() + windowSize / 2);
+      if (timeRange.granularity === "all") {
+        // all 模式：显示所有数据，但时间范围基于当前时间轴位置
+        console.log(
+          "All mode - currentPosition:",
+          currentPosition,
+          "currentTime:",
+          currentTime,
+          "startTime:",
+          fixedStartDate,
+          "endTime:",
+          currentTime
+        );
+        onChange({
+          start: fixedStartDate,
+          end: currentTime, // 从开始到当前时间轴位置
+          granularity: "all",
+        });
+      } else if (timeRange.granularity === "day") {
+        // day 模式：基于当前滑动位置显示当天24小时
+        const dayStart = new Date(currentTime);
+        dayStart.setUTCHours(0, 0, 0, 0);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setUTCHours(23, 59, 59, 999);
 
-      onChange({
-        start: currentTime,
-        end:
-          Math.min(windowEnd.getTime(), fixedEndDate.getTime()) < fixedEndDate.getTime()
-            ? windowEnd
-            : fixedEndDate,
-        granularity: timeRange.granularity,
-      });
+        onChange({
+          start: dayStart,
+          end: currentTime, // 使用当前滑动位置时间，而不是固定的23:59
+          granularity: "day",
+        });
+      } else if (timeRange.granularity === "week") {
+        // week 模式：基于当前滑动位置显示7天范围
+        const weekEnd = new Date(currentTime);
+        const weekStart = new Date(weekEnd);
+        weekStart.setDate(weekStart.getDate() - 6); // 当前时间往前推6天，包含当前时间
+
+        onChange({
+          start: weekStart,
+          end: weekEnd,
+          granularity: "week",
+        });
+      }
     }
     // eslint-disable-next-line
-  }, [currentPosition, currentGranularity.duration, totalDuration, onChange]);
+  }, [currentPosition, timeRange.granularity, totalDuration, onChange]);
 
   const handleGranularityChange = (granularity: string) => {
-    const option = granularityOptions.find((g) => g.id === granularity);
-    if (option) {
-      const currentTime = new Date(
-        fixedStartDate.getTime() + (totalDuration * currentPosition) / 100
-      );
-      const center = currentTime;
-      const newStart = new Date(center.getTime() - option.duration / 2);
-      const newEnd = new Date(center.getTime() + option.duration / 2);
+    // 获取当前滑动位置对应的时间
+    const currentTime = getCurrentDateTime();
+
+    if (granularity === "all") {
+      // all 模式：显示所有数据，时间范围设为整个数据范围
+      onChange({
+        start: fixedStartDate,
+        end: currentTime, // 使用当前滑动位置时间
+        granularity: "all",
+      });
+    } else if (granularity === "day") {
+      // day 模式：基于当前滑动位置显示当天24小时数据
+      const dayStart = new Date(currentTime);
+      dayStart.setUTCHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setUTCHours(23, 59, 59, 999);
 
       onChange({
-        start:
-          Math.max(newStart.getTime(), fixedStartDate.getTime()) > fixedStartDate.getTime()
-            ? newStart
-            : fixedStartDate,
-        end:
-          Math.min(newEnd.getTime(), fixedEndDate.getTime()) < fixedEndDate.getTime()
-            ? newEnd
-            : fixedEndDate,
-        granularity: granularity as any,
+        start: dayStart,
+        end: currentTime, // 使用当前滑动位置时间
+        granularity: "day",
+      });
+    } else if (granularity === "week") {
+      // week 模式：基于当前滑动位置显示7天范围
+      const weekEnd = new Date(currentTime);
+      const weekStart = new Date(weekEnd);
+      weekStart.setDate(weekStart.getDate() - 6); // 当前时间往前推6天，包含当前时间
+
+      onChange({
+        start: weekStart,
+        end: currentTime, // 使用当前滑动位置时间
+        granularity: "week",
       });
     }
   };
 
   const getCurrentDateTime = () => {
     const currentTime = new Date(
-      fixedStartDate.getTime() + (totalDuration * currentPosition) / 100
+      timeRange_actual.start.getTime() +
+        (totalDuration * currentPosition) / 1000
     );
     return currentTime;
   };
@@ -119,22 +325,7 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
     const currentTime = getCurrentDateTime();
 
     switch (timeRange.granularity) {
-      case "months":
-        return currentTime.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-      case "weeks":
-        return `Week of ${currentTime.toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        })}`;
-      case "days":
-        return currentTime.toLocaleDateString("en-US", {
-          weekday: "long",
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-        });
-      case "hours":
+      case "day":
         return currentTime.toLocaleString("en-US", {
           weekday: "long",
           month: "long",
@@ -142,7 +333,30 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
           year: "numeric",
           hour: "2-digit",
           minute: "2-digit",
+          timeZone: "UTC",
         });
+      case "week":
+        return `Week of ${currentTime.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          timeZone: "UTC",
+        })}`;
+      case "all":
+        // 显示所有数据的实际时间范围
+        const startDate = fixedStartDate.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          timeZone: "UTC",
+        });
+        const endDate = fixedEndDate.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          timeZone: "UTC",
+        });
+        return `All Data (${startDate} - ${endDate})`;
       default:
         return currentTime.toLocaleDateString();
     }
@@ -164,7 +378,9 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
           {granularityOptions.map((option) => (
             <Button
               key={option.id}
-              variant={timeRange.granularity === option.id ? "default" : "outline"}
+              variant={
+                timeRange.granularity === option.id ? "default" : "outline"
+              }
               size="sm"
               onClick={() => handleGranularityChange(option.id)}
               className={`h-8 ${
@@ -186,16 +402,22 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
           <div>
             <div className="font-medium text-white">{formatDateRange()}</div>
             <div className="text-sm text-cyan-200">
-              Viewing {currentGranularity.label.toLowerCase()} resolution • August 10, 2025 to now (Local Time)
+              Viewing {currentGranularity.label.toLowerCase()} resolution •
+              September 12, 2025 to now (Local Time)
             </div>
           </div>
         </div>
-        <Badge variant="outline" className="bg-cyan-600/20 border-cyan-400 text-cyan-100">
+        <Badge
+          variant="outline"
+          className="bg-cyan-600/20 border-cyan-400 text-cyan-100"
+        >
           {(() => {
             const currentTime = getCurrentDateTime();
-            const totalDuration = fixedEndDate.getTime() - fixedStartDate.getTime();
-            const currentDuration = currentTime.getTime() - fixedStartDate.getTime();
-            const progressPercent = Math.round((currentDuration / totalDuration) * 100);
+            const currentDuration =
+              currentTime.getTime() - timeRange_actual.start.getTime();
+            const progressPercent = Math.round(
+              (currentDuration / totalDuration) * 100
+            );
             return `Progress: ${Math.min(progressPercent, 100)}%`;
           })()}
         </Badge>
@@ -207,27 +429,31 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
           <input
             type="range"
             min="0"
-            max="100"
+            max="1000"
             value={currentPosition}
             onChange={(e) => setCurrentPosition(Number(e.target.value))}
             className="w-full h-2 bg-cyan-900/30 rounded-lg appearance-none cursor-pointer slider"
             style={{
-              background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${currentPosition}%, #0e374a ${currentPosition}%, #0e374a 100%)`,
+              background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${
+                currentPosition / 10
+              }%, #0e374a ${currentPosition / 10}%, #0e374a 100%)`,
             }}
           />
 
           {/* Timeline markers */}
           <div className="absolute -bottom-6 left-0 right-0 flex justify-between text-xs text-cyan-200">
             {Array.from({ length: 7 }, (_, i) => {
-              const totalDuration = fixedEndDate.getTime() - fixedStartDate.getTime();
-              const markerTime = new Date(fixedStartDate.getTime() + (totalDuration * i) / 6);
-              const localTime = markerTime.toLocaleDateString("en-US", {
+              const markerTime = new Date(
+                timeRange_actual.start.getTime() + (totalDuration * i) / 6
+              );
+              const utcTime = markerTime.toLocaleDateString("en-US", {
                 month: "short",
                 day: "numeric",
                 hour: "2-digit",
                 minute: "2-digit",
+                timeZone: "UTC",
               });
-              return <span key={i}>{localTime}</span>;
+              return <span key={i}>{utcTime}</span>;
             })}
           </div>
         </div>
@@ -265,13 +491,19 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
             }`}
             title={isPlaying ? "Pause" : "Play"}
           >
-            {isPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+            {isPlaying ? (
+              <Pause className="h-3 w-3" />
+            ) : (
+              <Play className="h-3 w-3" />
+            )}
           </Button>
 
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setCurrentPosition(Math.min(100, currentPosition + 5))}
+            onClick={() =>
+              setCurrentPosition(Math.min(100, currentPosition + 5))
+            }
             className="h-8 w-8 p-0 bg-white/10 text-cyan-200 border-white/20 hover:bg-cyan-900/20"
             title="Step Forward"
           >

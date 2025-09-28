@@ -178,7 +178,7 @@ export function ResearchMap({
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [isGeneratingFilteredImage, setIsGeneratingFilteredImage] =
     useState(false);
-  
+
   // State for current image path display functionality
   const [currentImageInfo, setCurrentImageInfo] = useState<{
     filename: string;
@@ -186,9 +186,11 @@ export function ResearchMap({
     localPath?: string;
   } | null>(null);
   const [isImageInfoDialogOpen, setIsImageInfoDialogOpen] = useState(false);
-  
+
   // State for map view mode
-  const [viewMode, setViewMode] = useState<"static" | "interactive" | "canvas">("static");
+  const [viewMode, setViewMode] = useState<"static" | "interactive" | "canvas">(
+    "static"
+  );
 
   // 如果没有传入getParameterFiles，则使用useDataStore（向后兼容）
   const dataStore = !getParameterFiles ? useDataStore() : null;
@@ -201,6 +203,11 @@ export function ResearchMap({
   // 获取当前时间戳和文件名
   const currentTimestamp = useMemo(() => {
     if (!satelliteMapping) return null;
+
+    // all 模式不生成时间戳
+    if (timeRange.granularity === "all") {
+      return null;
+    }
 
     // Ensure UTC time and round down to the nearest hour
     const utcDate = new Date(timeRange.start.getTime());
@@ -224,7 +231,13 @@ export function ResearchMap({
       const second = String(utcDate.getUTCSeconds()).padStart(2, "0");
       return `${year}${month}${day}_${hour}${minute}${second}`;
     }
-  }, [parameter, timeRange.start, satelliteMapping]);
+  }, [
+    parameter,
+    timeRange.start,
+    timeRange.end,
+    timeRange.granularity,
+    satelliteMapping,
+  ]);
 
   // Sync temp values with current range when dialog opens
   useEffect(() => {
@@ -265,17 +278,24 @@ export function ResearchMap({
                   ncFilename = getSentinel3FallbackFilename(parameter);
                 } else {
                   const ncFiles = await getFiles(parameter, "nc");
-                if (ncFiles && ncFiles.length > 0) {
-                  // Sentinel-3通常只有一个NC文件包含整个查询时间范围的数据
-                  ncFilename = ncFiles[0].filename;
-                  console.log(`Using Sentinel-3 NC file for ${parameter}: ${ncFilename}`);
-                } else {
-                  console.warn(`No NC files found for ${parameter}, using fallback`);
-                  ncFilename = getSentinel3FallbackFilename(parameter);
-                }
+                  if (ncFiles && ncFiles.length > 0) {
+                    // Sentinel-3通常只有一个NC文件包含整个查询时间范围的数据
+                    ncFilename = ncFiles[0].filename;
+                    console.log(
+                      `Using Sentinel-3 NC file for ${parameter}: ${ncFilename}`
+                    );
+                  } else {
+                    console.warn(
+                      `No NC files found for ${parameter}, using fallback`
+                    );
+                    ncFilename = getSentinel3FallbackFilename(parameter);
+                  }
                 }
               } catch (error) {
-                console.warn("Failed to get NC files list, using fallback:", error);
+                console.warn(
+                  "Failed to get NC files list, using fallback:",
+                  error
+                );
                 ncFilename = getSentinel3FallbackFilename(parameter);
               }
             }
@@ -352,9 +372,19 @@ export function ResearchMap({
       if (maxValue !== undefined)
         params.append("max_value", maxValue.toString());
 
-      // 添加target_time参数用于Sentinel-3
-      const targetTime = timeRange.start.toISOString();
+      // 添加target_time参数
+      const targetTime =
+        timeRange.granularity === "all" ? "all" : timeRange.start.toISOString();
       params.append("target_time", targetTime);
+
+      // 添加模式参数
+      params.append("mode", timeRange.granularity);
+
+      // 如果是all模式，添加时间范围参数
+      if (timeRange.granularity === "all") {
+        params.append("start_time", timeRange.start.toISOString());
+        params.append("end_time", timeRange.end.toISOString());
+      }
 
       const response = await fetch(
         `http://localhost:8000/api/v1/satellites/${
@@ -416,39 +446,170 @@ export function ResearchMap({
 
   // 通用文件查找函数：根据时间查找最合适的文件
   const findBestFileForTime = (files: any[], selectedTime: Date) => {
-    if (parameter === "ssth") {
-      // Himawari 文件查找 - 查找包含时间戳的文件
-      return files.find(
-        (file) => file.filename && file.filename.startsWith(currentTimestamp)
-      );
-    } else {
-      // Sentinel-3 文件查找 - 寻找选中时间点之前最近的那张图
+    if (timeRange.granularity === "all") {
+      // all 模式：返回时间范围内最接近endTime的文件
+      const endTime = timeRange.end;
+      console.log("All mode - endTime:", endTime, "files count:", files.length);
       let bestFile = null;
       let bestTimeDiff = Infinity;
 
       for (const file of files) {
-        const fileTime = extractTimeFromSentinel3Filename(file.filename);
-        if (fileTime && fileTime.getTime() <= selectedTime.getTime()) {
-          const timeDiff = selectedTime.getTime() - fileTime.getTime();
+        let fileTime: Date | null = null;
+
+        if (parameter === "ssth") {
+          // Himawari 文件时间提取
+          const timeMatch = file.filename.match(/(\d{8})(\d{6})\.png$/);
+          if (timeMatch) {
+            const dateStr = timeMatch[1];
+            const timeStr = timeMatch[2];
+            const year = dateStr.substring(0, 4);
+            const month = dateStr.substring(4, 6);
+            const day = dateStr.substring(6, 8);
+            const hour = timeStr.substring(0, 2);
+            const minute = timeStr.substring(2, 4);
+            const second = timeStr.substring(4, 6);
+            fileTime = new Date(
+              `${year}-${month}-${day}T${hour}:${minute}:${second}Z`
+            );
+            console.log(
+              "Himawari file time:",
+              file.filename,
+              "->",
+              fileTime,
+              "endTime:",
+              endTime
+            );
+          }
+        } else {
+          // Sentinel-3 文件时间提取
+          fileTime = extractTimeFromSentinel3Filename(file.filename);
+        }
+
+        // 查找最接近endTime的文件（允许文件时间稍晚于endTime）
+        if (fileTime) {
+          const timeDiff = Math.abs(endTime.getTime() - fileTime.getTime());
           if (timeDiff < bestTimeDiff) {
             bestTimeDiff = timeDiff;
             bestFile = file;
           }
         }
       }
-      return bestFile;
+
+      console.log(
+        "All mode - selected file:",
+        bestFile?.filename,
+        "timeDiff:",
+        bestTimeDiff
+      );
+      return bestFile || files[0]; // 如果没有找到合适的，返回最新文件
+    }
+
+    // Day和Week模式：使用精确时间戳匹配
+    if (timeRange.granularity === "day") {
+      // Day模式：使用类似Week模式的动态选择，选择最接近selectedTime的文件
+      let bestFile = null;
+      let bestTimeDiff = Infinity;
+
+      for (const file of files) {
+        let fileTime: Date | null = null;
+
+        if (parameter === "ssth") {
+          // Himawari 文件时间提取
+          const timeMatch = file.filename.match(/(\d{8})(\d{6})\.png$/);
+          if (timeMatch) {
+            const dateStr = timeMatch[1];
+            const timeStr = timeMatch[2];
+            const year = dateStr.substring(0, 4);
+            const month = dateStr.substring(4, 6);
+            const day = dateStr.substring(6, 8);
+            const hour = timeStr.substring(0, 2);
+            const minute = timeStr.substring(2, 4);
+            const second = timeStr.substring(4, 6);
+            fileTime = new Date(
+              `${year}-${month}-${day}T${hour}:${minute}:${second}Z`
+            );
+          }
+        } else {
+          // Sentinel-3 文件时间提取
+          fileTime = extractTimeFromSentinel3Filename(file.filename);
+        }
+
+        // 查找最接近selectedTime的文件
+        if (fileTime) {
+          const timeDiff = Math.abs(
+            selectedTime.getTime() - fileTime.getTime()
+          );
+          if (timeDiff < bestTimeDiff) {
+            bestTimeDiff = timeDiff;
+            bestFile = file;
+          }
+        }
+      }
+
+      return bestFile || files[0];
+    } else if (timeRange.granularity === "week") {
+      // Week模式：使用类似All模式的逻辑，选择最接近selectedTime的文件
+      let bestFile = null;
+      let bestTimeDiff = Infinity;
+
+      for (const file of files) {
+        let fileTime: Date | null = null;
+
+        if (parameter === "ssth") {
+          // Himawari 文件时间提取
+          const timeMatch = file.filename.match(/(\d{8})(\d{6})\.png$/);
+          if (timeMatch) {
+            const dateStr = timeMatch[1];
+            const timeStr = timeMatch[2];
+            const year = dateStr.substring(0, 4);
+            const month = dateStr.substring(4, 6);
+            const day = dateStr.substring(6, 8);
+            const hour = timeStr.substring(0, 2);
+            const minute = timeStr.substring(2, 4);
+            const second = timeStr.substring(4, 6);
+            fileTime = new Date(
+              `${year}-${month}-${day}T${hour}:${minute}:${second}Z`
+            );
+          }
+        } else {
+          // Sentinel-3 文件时间提取
+          fileTime = extractTimeFromSentinel3Filename(file.filename);
+        }
+
+        // 查找最接近selectedTime的文件
+        if (fileTime) {
+          const timeDiff = Math.abs(
+            selectedTime.getTime() - fileTime.getTime()
+          );
+          if (timeDiff < bestTimeDiff) {
+            bestTimeDiff = timeDiff;
+            bestFile = file;
+          }
+        }
+      }
+
+      return bestFile || files[0];
     }
   };
 
   useEffect(() => {
-    if (satelliteMapping && currentTimestamp && availableFiles.length > 0) {
+    if (satelliteMapping && availableFiles.length > 0) {
+      console.log("All mode - timeRange changed:", {
+        start: timeRange.start,
+        end: timeRange.end,
+        granularity: timeRange.granularity,
+      });
       // 寻找最匹配的文件
       let targetFile: any = null;
 
       // 使用通用文件查找函数
-      targetFile = findBestFileForTime(availableFiles, timeRange.start);
+      // 所有模式都使用timeRange.end（当前滑动位置时间）
+      const selectedTime = timeRange.end;
+      targetFile = findBestFileForTime(availableFiles, selectedTime);
 
-      console.log(`Looking for file with timestamp: ${currentTimestamp}`);
+      console.log(
+        `Looking for file with timestamp: ${currentTimestamp || "all"}`
+      );
       console.log(
         `Available files:`,
         availableFiles.map((f) => f.filename)
@@ -465,23 +626,33 @@ export function ResearchMap({
           } else {
             // 对于Sentinel-3，动态获取NC文件（类似Himawari的方式）
             try {
-              const ncFiles = await getFiles(parameter, "nc");
+              const ncFiles = await getFiles?.(parameter, "nc");
               if (ncFiles && ncFiles.length > 0) {
                 // 使用最新的NC文件（按修改时间排序）
                 ncFilename = ncFiles[0].filename;
-                console.log(`Using latest NC file for stats ${parameter}: ${ncFilename}`);
+                console.log(
+                  `Using latest NC file for stats ${parameter}: ${ncFilename}`
+                );
               } else {
-                console.warn(`No NC files found for stats ${parameter}, using fallback`);
+                console.warn(
+                  `No NC files found for stats ${parameter}, using fallback`
+                );
                 ncFilename = getSentinel3FallbackFilename(parameter);
               }
             } catch (error) {
-              console.warn("Failed to get NC files list for stats, using fallback:", error);
+              console.warn(
+                "Failed to get NC files list for stats, using fallback:",
+                error
+              );
               ncFilename = getSentinel3FallbackFilename(parameter);
             }
           }
 
           // 传递目标时间给API
-          const targetTime = timeRange.start.toISOString();
+          const targetTime =
+            timeRange.granularity === "all"
+              ? "all"
+              : timeRange.start.toISOString();
           console.log(
             `Fetching stats for ${parameter} using NC file: ${ncFilename} at time: ${targetTime}`
           );
@@ -507,20 +678,22 @@ export function ResearchMap({
         img.onload = () => {
           setImageUrl(pngUrl);
           setIsLoading(false);
-          
-          // Update current image info for path display functionality  
+
+          // Update current image info for path display functionality
           // Use absolute directory path from backend if available
-          const absolutePath = targetFile.directory 
-            ? `${targetFile.directory}${targetFile.directory.includes('\\') ? '\\' : '/'}${targetFile.filename}`
+          const absolutePath = targetFile.directory
+            ? `${targetFile.directory}${
+                targetFile.directory.includes("\\") ? "\\" : "/"
+              }${targetFile.filename}`
             : `data/${satelliteMapping.satellite}/${satelliteMapping.parameter}/png/${targetFile.filename}`;
-          
+
           const imageInfo = {
             filename: targetFile.filename,
             url: pngUrl,
-            localPath: absolutePath
+            localPath: absolutePath,
           };
           setCurrentImageInfo(imageInfo);
-          console.log('Current image info updated:', imageInfo);
+          console.log("Current image info updated:", imageInfo);
         };
         img.onerror = () => {
           console.warn(`PNG failed to load: ${targetFile.filename}`);
@@ -552,7 +725,15 @@ export function ResearchMap({
       setImageError(false);
       setCurrentImageInfo(null); // Clear image info for unsupported parameters
     }
-  }, [satelliteMapping, currentTimestamp, availableFiles, parameter, imageUrl]);
+  }, [
+    satelliteMapping,
+    currentTimestamp,
+    availableFiles,
+    parameter,
+    imageUrl,
+    timeRange.end,
+    timeRange.granularity,
+  ]);
 
   if (isLoading) {
     return (
@@ -647,7 +828,6 @@ export function ResearchMap({
     );
   }
 
-
   return (
     <div
       className={`relative ${
@@ -675,7 +855,7 @@ export function ResearchMap({
           <div className="relative w-full h-full">
             {/* Show filtered image if available, otherwise show original */}
             <img
-              src={filteredImageUrl || imageUrl}
+              src={filteredImageUrl || imageUrl || ""}
               alt={`${currentParam?.name} visualization`}
               className={`${
                 isFullscreen ? "max-w-full max-h-full" : "w-full h-full"
@@ -754,7 +934,16 @@ export function ResearchMap({
         {imageUrl && satelliteMapping && (
           <Badge className="bg-white/20 backdrop-blur text-white border-white/30 whitespace-nowrap">
             <div className="text-xs truncate">
-              {timeRange.start.toLocaleString()}
+              {timeRange.end.toLocaleString("en-US", {
+                timeZone: "UTC",
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+                hour12: false,
+              })}
             </div>
           </Badge>
         )}
@@ -771,7 +960,10 @@ export function ResearchMap({
 
         {/* Image Path Display Button */}
         {imageUrl && currentImageInfo && (
-          <Dialog open={isImageInfoDialogOpen} onOpenChange={setIsImageInfoDialogOpen}>
+          <Dialog
+            open={isImageInfoDialogOpen}
+            onOpenChange={setIsImageInfoDialogOpen}
+          >
             <DialogTrigger asChild>
               <Button
                 variant="outline"
@@ -790,14 +982,18 @@ export function ResearchMap({
               <div className="space-y-4">
                 <div className="space-y-3">
                   <div>
-                    <Label className="text-sm font-medium text-gray-700">Filename</Label>
+                    <Label className="text-sm font-medium text-gray-700">
+                      Filename
+                    </Label>
                     <div className="mt-1 p-2 bg-gray-50 rounded border text-sm font-mono">
                       {currentImageInfo.filename}
                     </div>
                   </div>
-                  
+
                   <div>
-                    <Label className="text-sm font-medium text-gray-700">Local Path</Label>
+                    <Label className="text-sm font-medium text-gray-700">
+                      Local Path
+                    </Label>
                     <div className="mt-1 p-2 bg-gray-50 rounded border text-sm font-mono break-all">
                       {currentImageInfo.localPath}
                     </div>
@@ -808,38 +1004,56 @@ export function ResearchMap({
                         onClick={async () => {
                           try {
                             // 尝试通过后端API打开文件管理器
-                            const response = await fetch('http://localhost:8000/api/v1/open-path', {
-                              method: 'POST',
-                              headers: {
-                                'Content-Type': 'application/json',
-                              },
-                              body: JSON.stringify({
-                                path: currentImageInfo.localPath
-                              })
-                            });
-                            
+                            const response = await fetch(
+                              "http://localhost:8000/api/v1/open-path",
+                              {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                },
+                                body: JSON.stringify({
+                                  path: currentImageInfo.localPath,
+                                }),
+                              }
+                            );
+
                             if (response.ok) {
-                              console.log('File manager opened successfully');
+                              console.log("File manager opened successfully");
                             } else {
-                              throw new Error('Backend API failed');
+                              throw new Error("Backend API failed");
                             }
                           } catch (error) {
-                            console.error('Failed to open path via backend:', error);
-                            
+                            console.error(
+                              "Failed to open path via backend:",
+                              error
+                            );
+
                             // 后备方案：尝试使用浏览器原生方法
                             try {
                               // 对于Windows系统，尝试使用file:// protocol
-                              const fileUrl = `file:///${currentImageInfo.localPath?.replace(/\\/g, '/')}`;
-                              window.open(fileUrl, '_blank');
+                              const fileUrl = `file:///${currentImageInfo.localPath?.replace(
+                                /\\/g,
+                                "/"
+                              )}`;
+                              window.open(fileUrl, "_blank");
                             } catch (fallbackError) {
-                              console.error('Fallback method also failed:', fallbackError);
+                              console.error(
+                                "Fallback method also failed:",
+                                fallbackError
+                              );
                               // 最后的后备方案：复制路径到剪贴板
-                              navigator.clipboard.writeText(currentImageInfo.localPath || '')
+                              navigator.clipboard
+                                .writeText(currentImageInfo.localPath || "")
                                 .then(() => {
-                                  alert('Cannot open file manager. Path copied to clipboard instead.');
+                                  alert(
+                                    "Cannot open file manager. Path copied to clipboard instead."
+                                  );
                                 })
                                 .catch(() => {
-                                  alert('Cannot open file manager or copy path. Please manually navigate to: ' + currentImageInfo.localPath);
+                                  alert(
+                                    "Cannot open file manager or copy path. Please manually navigate to: " +
+                                      currentImageInfo.localPath
+                                  );
                                 });
                             }
                           }
@@ -848,19 +1062,20 @@ export function ResearchMap({
                         <FolderOpen className="h-3 w-3 mr-1" />
                         Open Path
                       </Button>
-                      
+
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          navigator.clipboard.writeText(currentImageInfo.localPath || '')
+                          navigator.clipboard
+                            .writeText(currentImageInfo.localPath || "")
                             .then(() => {
-                              console.log('Path copied to clipboard');
+                              console.log("Path copied to clipboard");
                               // 可以添加toast通知
                             })
                             .catch((err) => {
-                              console.error('Failed to copy path:', err);
-                              alert('Failed to copy path to clipboard');
+                              console.error("Failed to copy path:", err);
+                              alert("Failed to copy path to clipboard");
                             });
                         }}
                       >
@@ -869,9 +1084,11 @@ export function ResearchMap({
                       </Button>
                     </div>
                   </div>
-                  
+
                   <div>
-                    <Label className="text-sm font-medium text-gray-700">Server URL</Label>
+                    <Label className="text-sm font-medium text-gray-700">
+                      Server URL
+                    </Label>
                     <div className="mt-1 p-2 bg-gray-50 rounded border text-sm font-mono break-all">
                       {currentImageInfo.url}
                     </div>
@@ -880,26 +1097,28 @@ export function ResearchMap({
                       size="sm"
                       className="mt-2"
                       onClick={() => {
-                        window.open(currentImageInfo.url, '_blank');
+                        window.open(currentImageInfo.url, "_blank");
                       }}
                     >
                       <FolderOpen className="h-3 w-3 mr-1" />
                       Open in Browser
                     </Button>
                   </div>
-                  
+
                   <div className="p-3 bg-blue-50 rounded border border-blue-200">
                     <p className="text-xs text-blue-700 font-medium mb-1">
                       Image Details:
                     </p>
                     <div className="text-xs text-blue-600">
-                      <p>Satellite: {satelliteMapping?.satellite.toUpperCase()}</p>
+                      <p>
+                        Satellite: {satelliteMapping?.satellite.toUpperCase()}
+                      </p>
                       <p>Parameter: {currentParam?.name}</p>
                       <p>Timestamp: {timeRange.start.toLocaleString()}</p>
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="flex justify-end">
                   <Button
                     variant="outline"

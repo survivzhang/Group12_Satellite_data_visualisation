@@ -12,14 +12,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  MapPin,
-  Zap,
-  Settings,
-  RotateCcw,
-  Info,
-  Globe,
-} from "lucide-react";
+import { MapPin, Zap, Settings, RotateCcw, Info, Globe } from "lucide-react";
 
 // Dynamic import to avoid SSR issues with Leaflet
 const MapContainer = dynamic(
@@ -114,47 +107,55 @@ const getSentinel3FallbackFilename = (param: string): string => {
 };
 
 // Turbo 色彩映射函数 - 匹配matplotlib的turbo colormap
-const getTurboColor = (value: number, min: number, max: number): [number, number, number] => {
+const getTurboColor = (
+  value: number,
+  min: number,
+  max: number
+): [number, number, number] => {
   const normalized = Math.max(0, Math.min(1, (value - min) / (max - min)));
-  
+
   // Turbo colormap的RGB值（简化版本，与matplotlib的turbo接近）
   const turboColors = [
     [0.18995, 0.07176, 0.23217], // 深紫
     [0.25107, 0.25237, 0.63374], // 蓝紫
     [0.19308, 0.42742, 0.81005], // 蓝色
-    [0.15844, 0.57810, 0.83226], // 青蓝
-    [0.17423, 0.71895, 0.79130], // 青色
-    [0.25862, 0.83590, 0.67178], // 青绿
+    [0.15844, 0.5781, 0.83226], // 青蓝
+    [0.17423, 0.71895, 0.7913], // 青色
+    [0.25862, 0.8359, 0.67178], // 青绿
     [0.42956, 0.91471, 0.47662], // 绿色
     [0.64362, 0.94276, 0.23267], // 黄绿
     [0.86581, 0.86482, 0.01048], // 黄色
-    [0.98517, 0.64499, 0.01630], // 橙色
+    [0.98517, 0.64499, 0.0163], // 橙色
     [0.95593, 0.39466, 0.13098], // 橙红
     [0.84071, 0.18056, 0.18024], // 红色
   ];
-  
+
   // 插值计算
   const segments = turboColors.length - 1;
   const segment = Math.floor(normalized * segments);
-  const t = (normalized * segments) - segment;
-  
+  const t = normalized * segments - segment;
+
   const idx1 = Math.min(segment, segments - 1);
   const idx2 = Math.min(segment + 1, segments);
-  
+
   const color1 = turboColors[idx1];
   const color2 = turboColors[idx2];
-  
+
   const r = Math.round((color1[0] + (color2[0] - color1[0]) * t) * 255);
   const g = Math.round((color1[1] + (color2[1] - color1[1]) * t) * 255);
   const b = Math.round((color1[2] + (color2[2] - color1[2]) * t) * 255);
-  
+
   return [r, g, b];
 };
 
 // Viridis 色彩映射函数 - 匹配matplotlib的viridis colormap
-const getViridisColor = (value: number, min: number, max: number): [number, number, number] => {
+const getViridisColor = (
+  value: number,
+  min: number,
+  max: number
+): [number, number, number] => {
   const normalized = Math.max(0, Math.min(1, (value - min) / (max - min)));
-  
+
   const viridisColors = [
     [0.267004, 0.004874, 0.329415], // 深紫
     [0.282623, 0.140926, 0.457517], // 紫色
@@ -167,26 +168,31 @@ const getViridisColor = (value: number, min: number, max: number): [number, numb
     [0.477504, 0.821444, 0.318195], // 黄绿
     [0.741388, 0.873449, 0.149561], // 黄色
   ];
-  
+
   const segments = viridisColors.length - 1;
   const segment = Math.floor(normalized * segments);
-  const t = (normalized * segments) - segment;
-  
+  const t = normalized * segments - segment;
+
   const idx1 = Math.min(segment, segments - 1);
   const idx2 = Math.min(segment + 1, segments);
-  
+
   const color1 = viridisColors[idx1];
   const color2 = viridisColors[idx2];
-  
+
   const r = Math.round((color1[0] + (color2[0] - color1[0]) * t) * 255);
   const g = Math.round((color1[1] + (color2[1] - color1[1]) * t) * 255);
   const b = Math.round((color1[2] + (color2[2] - color1[2]) * t) * 255);
-  
+
   return [r, g, b];
 };
 
 // 主颜色映射函数 - 匹配静态PNG的色彩方案
-const getColorForValue = (value: number, min: number, max: number, parameter: string): [number, number, number] => {
+const getColorForValue = (
+  value: number,
+  min: number,
+  max: number,
+  parameter: string
+): [number, number, number] => {
   if (parameter.includes("sst") || parameter === "ssth") {
     // SST使用turbo colormap（和静态PNG一样）
     return getTurboColor(value, min, max);
@@ -194,7 +200,7 @@ const getColorForValue = (value: number, min: number, max: number, parameter: st
     // 叶绿素使用viridis colormap
     return getViridisColor(value, min, max);
   }
-  
+
   // 默认使用turbo
   return getTurboColor(value, min, max);
 };
@@ -204,17 +210,19 @@ const getColorForValue = (value: number, min: number, max: number, parameter: st
 // const gaussianKernel = ...
 
 // Canvas热力图生成器组件 - 按照你的成功实现方法
-function CanvasHeatmapOverlay({ 
-  ncData, 
-  parameter, 
-  onPointHover
-}: { 
-  ncData: SimpleNCData; 
+function CanvasHeatmapOverlay({
+  ncData,
+  parameter,
+  onPointHover,
+}: {
+  ncData: SimpleNCData;
   parameter: string;
   onPointHover: (point: DataPoint | null, x: number, y: number) => void;
 }) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [imageBounds, setImageBounds] = useState<[[number, number], [number, number]] | null>(null);
+  const [imageBounds, setImageBounds] = useState<
+    [[number, number], [number, number]] | null
+  >(null);
 
   // 生成热力图图片的核心函数
   const generateHeatmapImage = useCallback(() => {
@@ -223,8 +231,8 @@ function CanvasHeatmapOverlay({
     console.log("Generating heatmap image...");
 
     // 创建临时canvas
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     const { data, lats, lons, min_value, max_value } = ncData;
@@ -232,17 +240,21 @@ function CanvasHeatmapOverlay({
     const cols = data[0].length;
 
     // 根据数据密度调整Canvas大小
-    const density = Math.max(1, Math.min(4, Math.sqrt(rows * cols / 50000))); // 自动调整密度
+    const density = Math.max(1, Math.min(4, Math.sqrt((rows * cols) / 50000))); // 自动调整密度
     canvas.width = cols * density;
     canvas.height = rows * density;
 
-    console.log(`Canvas size: ${canvas.width}x${canvas.height}, density: ${density}, data: ${rows}x${cols}`);
-    
+    console.log(
+      `Canvas size: ${canvas.width}x${canvas.height}, density: ${density}, data: ${rows}x${cols}`
+    );
+
     // 调试数据范围
     console.log(`Data range: ${min_value} to ${max_value} ${ncData.units}`);
     console.log(`Lat range: ${Math.min(...lats)} to ${Math.max(...lats)}`);
     console.log(`Lon range: ${Math.min(...lons)} to ${Math.max(...lons)}`);
-    console.log(`Data file: ${ncData.filename} (${ncData.satellite}/${ncData.parameter})`);
+    console.log(
+      `Data file: ${ncData.filename} (${ncData.satellite}/${ncData.parameter})`
+    );
 
     // 清空画布
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -266,7 +278,7 @@ function CanvasHeatmapOverlay({
         );
 
         ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-        
+
         // 绘制像素块 - 注意：Canvas的y轴是从上到下，需要翻转
         // pcolormesh的数据矩阵：data[i][j] 对应 lat[i], lon[j]
         const x = j * density;
@@ -278,7 +290,7 @@ function CanvasHeatmapOverlay({
     console.log(`Generated heatmap with ${validCells} valid cells`);
 
     // 转换为图片URL
-    const dataUrl = canvas.toDataURL('image/png');
+    const dataUrl = canvas.toDataURL("image/png");
     setImageUrl(dataUrl);
 
     // 计算地理边界
@@ -286,13 +298,15 @@ function CanvasHeatmapOverlay({
     const maxLat = Math.max(...lats);
     const minLon = Math.min(...lons);
     const maxLon = Math.max(...lons);
-    
+
     setImageBounds([
       [minLat, minLon],
-      [maxLat, maxLon]
+      [maxLat, maxLon],
     ]);
 
-    console.log(`Image bounds: lat(${minLat}, ${maxLat}), lon(${minLon}, ${maxLon})`);
+    console.log(
+      `Image bounds: lat(${minLat}, ${maxLat}), lon(${minLon}, ${maxLon})`
+    );
   }, [ncData, parameter]);
 
   // 当数据改变时生成新的热力图
@@ -306,39 +320,40 @@ function CanvasHeatmapOverlay({
       click: (e) => {
         // 处理点击事件，查找最近的数据点
         if (!ncData) return;
-        
+
         const { data, lats, lons } = ncData;
         const clickLat = e.latlng.lat;
         const clickLon = e.latlng.lng;
-        
+
         let closestPoint: DataPoint | null = null;
         let minDistance = Infinity;
-        
+
         for (let i = 0; i < data.length; i++) {
           for (let j = 0; j < data[0].length; j++) {
             const value = data[i][j];
             if (value === null || isNaN(value)) continue;
-            
+
             const lat = lats[i];
             const lon = lons[j];
             const distance = Math.sqrt(
               Math.pow(lat - clickLat, 2) + Math.pow(lon - clickLon, 2)
             );
-            
+
             if (distance < minDistance) {
               minDistance = distance;
               closestPoint = { lat, lon, value };
             }
           }
         }
-        
-        if (closestPoint && minDistance < 0.1) { // 点击阈值
+
+        if (closestPoint && minDistance < 0.1) {
+          // 点击阈值
           console.log("Clicked data point:", closestPoint);
           onPointHover(closestPoint, e.containerPoint.x, e.containerPoint.y);
         }
       },
     });
-    
+
     return null;
   }
 
@@ -374,11 +389,17 @@ export function CanvasInteractiveMap({
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
 
   const currentParam = availableParameters.find((p) => p.id === parameter);
-  const satelliteMapping = SATELLITE_MAPPING[parameter as keyof typeof SATELLITE_MAPPING];
+  const satelliteMapping =
+    SATELLITE_MAPPING[parameter as keyof typeof SATELLITE_MAPPING];
 
   // 获取当前时间戳和文件名 (与之前相同的逻辑)
   const currentTimestamp = useMemo(() => {
     if (!satelliteMapping) return null;
+
+    // all 模式不生成时间戳
+    if (timeRange.granularity === "all") {
+      return null;
+    }
 
     const utcDate = new Date(timeRange.start.getTime());
     utcDate.setUTCMinutes(0, 0, 0);
@@ -398,7 +419,7 @@ export function CanvasInteractiveMap({
       const second = String(utcDate.getUTCSeconds()).padStart(2, "0");
       return `${year}${month}${day}_${hour}${minute}${second}`;
     }
-  }, [parameter, timeRange.start, satelliteMapping]);
+  }, [parameter, timeRange.start, timeRange.granularity, satelliteMapping]);
 
   const getNcFilename = useCallback(async (): Promise<string | null> => {
     if (!satelliteMapping || !getParameterFiles) return null;
@@ -441,10 +462,26 @@ export function CanvasInteractiveMap({
         throw new Error("Could not determine NC filename");
       }
 
-      const targetTime = timeRange.start.toISOString();
-      const apiUrl = `http://localhost:8000/api/v1/satellites/${satelliteMapping.satellite}/${satelliteMapping.parameter}/simple-data/${ncFilename}?target_time=${encodeURIComponent(targetTime)}`;
+      const targetTime =
+        timeRange.granularity === "all" ? "all" : timeRange.start.toISOString();
+      let apiUrl = `http://localhost:8000/api/v1/satellites/${
+        satelliteMapping.satellite
+      }/${
+        satelliteMapping.parameter
+      }/simple-data/${ncFilename}?target_time=${encodeURIComponent(
+        targetTime
+      )}&mode=${encodeURIComponent(timeRange.granularity)}`;
 
-      console.log(`Loading simple data for canvas from: ${apiUrl} (Sentinel-3 will use closest time <= target)`);
+      // 如果是all模式，添加时间范围参数
+      if (timeRange.granularity === "all") {
+        apiUrl += `&start_time=${encodeURIComponent(
+          timeRange.start.toISOString()
+        )}&end_time=${encodeURIComponent(timeRange.end.toISOString())}`;
+      }
+
+      console.log(
+        `Loading simple data for canvas from: ${apiUrl} (Sentinel-3 will use closest time <= target)`
+      );
 
       const response = await fetch(apiUrl);
       if (!response.ok) {
@@ -456,7 +493,9 @@ export function CanvasInteractiveMap({
       console.log("Simple NC data loaded:", data);
     } catch (error) {
       console.error("Error loading canvas map data:", error);
-      setError(error instanceof Error ? error.message : "Failed to load map data");
+      setError(
+        error instanceof Error ? error.message : "Failed to load map data"
+      );
     } finally {
       setIsLoading(false);
     }
@@ -475,7 +514,9 @@ export function CanvasInteractiveMap({
     const maxLon = Math.max(...ncData.lons);
     const centerLat = (minLat + maxLat) / 2;
     const centerLon = (minLon + maxLon) / 2;
-    console.log(`Map center: [${centerLat}, ${centerLon}], bounds: lat(${minLat}, ${maxLat}), lon(${minLon}, ${maxLon})`);
+    console.log(
+      `Map center: [${centerLat}, ${centerLon}], bounds: lat(${minLat}, ${maxLat}), lon(${minLon}, ${maxLon})`
+    );
     return [centerLat, centerLon];
   }, [ncData]);
 
@@ -491,10 +532,13 @@ export function CanvasInteractiveMap({
     ];
   }, [ncData]);
 
-  const handlePointHover = useCallback((point: DataPoint | null, x: number, y: number) => {
-    setHoveredPoint(point);
-    setTooltipPos({ x, y });
-  }, []);
+  const handlePointHover = useCallback(
+    (point: DataPoint | null, x: number, y: number) => {
+      setHoveredPoint(point);
+      setTooltipPos({ x, y });
+    },
+    []
+  );
 
   if (isLoading) {
     return (
@@ -553,7 +597,9 @@ export function CanvasInteractiveMap({
       >
         <div className="h-full flex items-center justify-center">
           <div className="text-center text-white/80">
-            <div className="text-lg font-medium mb-2">Canvas Interactive Map</div>
+            <div className="text-lg font-medium mb-2">
+              Canvas Interactive Map
+            </div>
             <div className="text-sm opacity-75">
               {satelliteMapping
                 ? "No data available for selected time"
@@ -587,7 +633,16 @@ export function CanvasInteractiveMap({
         </Badge>
         <Badge className="bg-white/20 backdrop-blur text-white border-white/30 whitespace-nowrap">
           <div className="text-xs truncate">
-            {timeRange.start.toLocaleString()}
+            {timeRange.end.toLocaleString("en-US", {
+              timeZone: "UTC",
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+              hour12: false,
+            })}
           </div>
         </Badge>
 
@@ -633,10 +688,19 @@ export function CanvasInteractiveMap({
                     Data Statistics
                   </label>
                   <div className="mt-1 p-2 bg-gray-50 rounded border text-sm space-y-1">
-                    <div>Min: {ncData.min_value.toFixed(3)} {ncData.units}</div>
-                    <div>Max: {ncData.max_value.toFixed(3)} {ncData.units}</div>
-                    <div>Mean: {ncData.mean_value.toFixed(3)} {ncData.units}</div>
-                    <div>Total Pixels: {(ncData.shape[0] * ncData.shape[1]).toLocaleString()}</div>
+                    <div>
+                      Min: {ncData.min_value.toFixed(3)} {ncData.units}
+                    </div>
+                    <div>
+                      Max: {ncData.max_value.toFixed(3)} {ncData.units}
+                    </div>
+                    <div>
+                      Mean: {ncData.mean_value.toFixed(3)} {ncData.units}
+                    </div>
+                    <div>
+                      Total Pixels:{" "}
+                      {(ncData.shape[0] * ncData.shape[1]).toLocaleString()}
+                    </div>
                   </div>
                 </div>
 
@@ -646,8 +710,13 @@ export function CanvasInteractiveMap({
                   </label>
                   <div className="mt-1 p-2 bg-gray-50 rounded border text-sm space-y-1">
                     <div>Data Source: Direct NC file read</div>
-                    <div>Data Size: {ncData.shape[0]} × {ncData.shape[1]}</div>
-                    <div>Coordinate Arrays: {ncData.lats.length} latitudes, {ncData.lons.length} longitudes</div>
+                    <div>
+                      Data Size: {ncData.shape[0]} × {ncData.shape[1]}
+                    </div>
+                    <div>
+                      Coordinate Arrays: {ncData.lats.length} latitudes,{" "}
+                      {ncData.lons.length} longitudes
+                    </div>
                   </div>
                 </div>
 
@@ -696,7 +765,9 @@ export function CanvasInteractiveMap({
         >
           <div className="bg-black/80 text-white text-xs p-2 rounded shadow-lg">
             <div className="font-medium">{currentParam?.name}</div>
-            <div>Value: {hoveredPoint.value.toFixed(3)} {ncData.units}</div>
+            <div>
+              Value: {hoveredPoint.value.toFixed(3)} {ncData.units}
+            </div>
             <div>Lat: {hoveredPoint.lat.toFixed(4)}°</div>
             <div>Lon: {hoveredPoint.lon.toFixed(4)}°</div>
           </div>
@@ -716,10 +787,10 @@ export function CanvasInteractiveMap({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        
+
         {/* Canvas热力图叠加层 */}
-        <CanvasHeatmapOverlay 
-          ncData={ncData} 
+        <CanvasHeatmapOverlay
+          ncData={ncData}
           parameter={parameter}
           onPointHover={handlePointHover}
         />
