@@ -96,6 +96,10 @@ const SATELLITE_MAPPING = {
     satellite: "sentinel3b",
     parameter: "chl",
   },
+  "ssha-swot": {
+    satellite: "swot",
+    parameter: "ssha",
+  },
 };
 
 const getSentinel3FallbackFilename = (param: string): string => {
@@ -185,6 +189,42 @@ const getViridisColor = (value: number, min: number, max: number): [number, numb
   return [r, g, b];
 };
 
+// Spectral 色彩映射函数 - 匹配matplotlib的Spectral colormap (用于SSHA)
+const getSpectralColor = (value: number, min: number, max: number): [number, number, number] => {
+  const normalized = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  
+  const spectralColors = [
+    [0.61960784, 0.00392157, 0.25882353], // 深红
+    [0.83529412, 0.24313725, 0.30980392], // 红
+    [0.95686275, 0.42745098, 0.26274510], // 橙红
+    [0.99215686, 0.68235294, 0.38039216], // 橙
+    [0.99607843, 0.87843137, 0.54509804], // 黄橙
+    [1.00000000, 1.00000000, 0.74901961], // 黄
+    [0.90196078, 0.96078431, 0.59607843], // 黄绿
+    [0.67058824, 0.86666667, 0.64313725], // 绿
+    [0.40000000, 0.76078431, 0.64705882], // 青绿
+    [0.19607843, 0.53333333, 0.74117647], // 蓝
+    [0.36862745, 0.30980392, 0.63529412], // 蓝紫
+    [0.36862745, 0.30980392, 0.63529412], // 紫
+  ];
+  
+  const segments = spectralColors.length - 1;
+  const segment = Math.floor(normalized * segments);
+  const t = (normalized * segments) - segment;
+  
+  const idx1 = Math.min(segment, segments - 1);
+  const idx2 = Math.min(segment + 1, segments);
+  
+  const color1 = spectralColors[idx1];
+  const color2 = spectralColors[idx2];
+  
+  const r = Math.round((color1[0] + (color2[0] - color1[0]) * t) * 255);
+  const g = Math.round((color1[1] + (color2[1] - color1[1]) * t) * 255);
+  const b = Math.round((color1[2] + (color2[2] - color1[2]) * t) * 255);
+  
+  return [r, g, b];
+};
+
 // 主颜色映射函数 - 匹配静态PNG的色彩方案
 const getColorForValue = (value: number, min: number, max: number, parameter: string): [number, number, number] => {
   if (parameter.includes("sst") || parameter === "ssth") {
@@ -193,6 +233,9 @@ const getColorForValue = (value: number, min: number, max: number, parameter: st
   } else if (parameter.includes("chl")) {
     // 叶绿素使用viridis colormap
     return getViridisColor(value, min, max);
+  } else if (parameter.includes("ssha") || parameter === "ssha-swot") {
+    // SSHA使用Spectral colormap（和静态PNG一样）
+    return getSpectralColor(value, min, max);
   }
   
   // 默认使用turbo
@@ -281,11 +324,34 @@ function CanvasHeatmapOverlay({
     const dataUrl = canvas.toDataURL('image/png');
     setImageUrl(dataUrl);
 
-    // 计算地理边界
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLon = Math.min(...lons);
-    const maxLon = Math.max(...lons);
+    // 计算地理边界 - 过滤 NaN 值
+    const validLats = lats.filter(lat => !isNaN(lat) && isFinite(lat));
+    const validLons = lons.filter(lon => !isNaN(lon) && isFinite(lon));
+    
+    if (validLats.length === 0 || validLons.length === 0) {
+      console.warn("No valid coordinates for image bounds, using default bounds");
+      setImageBounds([
+        [-25, 111],
+        [-20, 114]
+      ]);
+      return;
+    }
+    
+    const minLat = Math.min(...validLats);
+    const maxLat = Math.max(...validLats);
+    const minLon = Math.min(...validLons);
+    const maxLon = Math.max(...validLons);
+    
+    // 验证边界值
+    if (isNaN(minLat) || isNaN(maxLat) || isNaN(minLon) || isNaN(maxLon) ||
+        !isFinite(minLat) || !isFinite(maxLat) || !isFinite(minLon) || !isFinite(maxLon)) {
+      console.warn("Invalid bounds calculated, using default bounds");
+      setImageBounds([
+        [-25, 111],
+        [-20, 114]
+      ]);
+      return;
+    }
     
     setImageBounds([
       [minLat, minLon],
@@ -342,7 +408,19 @@ function CanvasHeatmapOverlay({
     return null;
   }
 
-  if (!imageUrl || !imageBounds) {
+  // 验证边界是否有效
+  const isValidBounds = imageBounds && 
+    imageBounds.length === 2 && 
+    imageBounds[0] && 
+    imageBounds[1] &&
+    imageBounds[0].length === 2 && 
+    imageBounds[1].length === 2 &&
+    !isNaN(imageBounds[0][0]) && !isNaN(imageBounds[0][1]) &&
+    !isNaN(imageBounds[1][0]) && !isNaN(imageBounds[1][1]) &&
+    isFinite(imageBounds[0][0]) && isFinite(imageBounds[0][1]) &&
+    isFinite(imageBounds[1][0]) && isFinite(imageBounds[1][1]);
+
+  if (!imageUrl || !isValidBounds) {
     return <MapEventHandler />;
   }
 
@@ -406,6 +484,15 @@ export function CanvasInteractiveMap({
     try {
       if (parameter === "ssth") {
         return `${currentTimestamp}.nc`;
+      } else if (parameter === "ssha-swot") {
+        // SWOT: 获取可用的NC文件
+        const ncFiles = await getParameterFiles(parameter, "nc");
+        if (ncFiles && ncFiles.length > 0) {
+          return ncFiles[0].filename;
+        } else {
+          // SWOT fallback filename
+          return "subset_SWOT_L3_LR_SSH_Expert_029_062_20250226T145417_20250226T154543_v2.0.1.nc";
+        }
       } else {
         const ncFiles = await getParameterFiles(parameter, "nc");
         if (ncFiles && ncFiles.length > 0) {
@@ -418,6 +505,8 @@ export function CanvasInteractiveMap({
       console.warn("Failed to get NC filename:", error);
       if (parameter === "ssth") {
         return `${currentTimestamp}.nc`;
+      } else if (parameter === "ssha-swot") {
+        return "subset_SWOT_L3_LR_SSH_Expert_029_062_20250226T145417_20250226T154543_v2.0.1.nc";
       } else {
         return getSentinel3FallbackFilename(parameter);
       }
@@ -469,22 +558,49 @@ export function CanvasInteractiveMap({
   // 计算地图中心和边界
   const mapCenter = useMemo(() => {
     if (!ncData) return [-22.0, 114.0];
-    const minLat = Math.min(...ncData.lats);
-    const maxLat = Math.max(...ncData.lats);
-    const minLon = Math.min(...ncData.lons);
-    const maxLon = Math.max(...ncData.lons);
+    
+    // Filter out NaN values from coordinates
+    const validLats = ncData.lats.filter(lat => !isNaN(lat) && isFinite(lat));
+    const validLons = ncData.lons.filter(lon => !isNaN(lon) && isFinite(lon));
+    
+    if (validLats.length === 0 || validLons.length === 0) {
+      console.warn("No valid coordinates found in data, using default center");
+      return [-22.0, 114.0];
+    }
+    
+    const minLat = Math.min(...validLats);
+    const maxLat = Math.max(...validLats);
+    const minLon = Math.min(...validLons);
+    const maxLon = Math.max(...validLons);
     const centerLat = (minLat + maxLat) / 2;
     const centerLon = (minLon + maxLon) / 2;
+    
+    // Validate center coordinates
+    if (isNaN(centerLat) || isNaN(centerLon) || !isFinite(centerLat) || !isFinite(centerLon)) {
+      console.warn("Invalid center coordinates calculated, using default center");
+      return [-22.0, 114.0];
+    }
+    
     console.log(`Map center: [${centerLat}, ${centerLon}], bounds: lat(${minLat}, ${maxLat}), lon(${minLon}, ${maxLon})`);
     return [centerLat, centerLon];
   }, [ncData]);
 
   const mapBounds = useMemo(() => {
     if (!ncData) return undefined;
-    const minLat = Math.min(...ncData.lats);
-    const maxLat = Math.max(...ncData.lats);
-    const minLon = Math.min(...ncData.lons);
-    const maxLon = Math.max(...ncData.lons);
+    
+    // Filter out NaN values from coordinates
+    const validLats = ncData.lats.filter(lat => !isNaN(lat) && isFinite(lat));
+    const validLons = ncData.lons.filter(lon => !isNaN(lon) && isFinite(lon));
+    
+    if (validLats.length === 0 || validLons.length === 0) {
+      return undefined;
+    }
+    
+    const minLat = Math.min(...validLats);
+    const maxLat = Math.max(...validLats);
+    const minLon = Math.min(...validLons);
+    const maxLon = Math.max(...validLons);
+    
     return [
       [minLat, minLon],
       [maxLat, maxLon],

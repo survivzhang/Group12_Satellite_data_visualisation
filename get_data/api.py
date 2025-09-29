@@ -188,6 +188,12 @@ def get_parameter_units(parameter: str, satellite: str = None) -> str:
         # Use Sentinel-3 specific units
         sentinel3_api = get_sentinel3_api()
         return sentinel3_api.get_parameter_unit(parameter)
+    elif satellite == 'swot':
+        # Use SWOT specific units
+        if parameter == "ssha":
+            return "meters"
+        else:
+            return "unknown"
     else:
         # Use general units for other satellites
         if parameter == "sst":
@@ -872,6 +878,12 @@ async def get_data_stats(satellite: str, parameter: str, filename: str, target_t
                 # Use Sentinel-3 specific variable lookup
                 sentinel3_api = get_sentinel3_api()
                 data_var = sentinel3_api.find_data_variable(ds, parameter)
+            elif satellite == 'swot':
+                # SWOT uses ssha_filtered as the main variable
+                for var_name in ["ssha_filtered", "ssha"]:
+                    if var_name in ds.data_vars:
+                        data_var = ds[var_name]
+                        break
             else:
                 # Use general variable lookup for other satellites
                 for var_name in ["sea_surface_temperature"]:
@@ -1600,6 +1612,12 @@ async def get_simple_nc_data(
             if satellite in ['sentinel3a', 'sentinel3b']:
                 sentinel3_api = get_sentinel3_api()
                 data_var = sentinel3_api.find_data_variable(ds, parameter)
+            elif satellite == 'swot':
+                # SWOT uses ssha_filtered as the main variable
+                for var_name in ["ssha_filtered", "ssha"]:
+                    if var_name in ds.data_vars:
+                        data_var = ds[var_name]
+                        break
             else:
                 for var_name in ["sea_surface_temperature"]:
                     if var_name in ds.data_vars:
