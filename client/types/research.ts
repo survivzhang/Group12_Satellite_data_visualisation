@@ -9,7 +9,7 @@ export interface Parameter {
 export interface TimeRange {
   start: Date;
   end: Date;
-  granularity: 'months' | 'weeks' | 'days' | 'hours';
+  granularity: "day" | "week" | "all";
 }
 
 export interface MapInstance {
@@ -24,7 +24,7 @@ export interface DataPoint {
   lng: number;
   value: number;
   timestamp: Date;
-  quality?: 'good' | 'questionable' | 'bad';
+  quality?: "good" | "questionable" | "bad";
 }
 
 export interface DataFile {

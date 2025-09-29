@@ -36,10 +36,9 @@ const CircleMarker = dynamic(
   () => import("react-leaflet").then((mod) => mod.CircleMarker),
   { ssr: false }
 );
-const Popup = dynamic(
-  () => import("react-leaflet").then((mod) => mod.Popup),
-  { ssr: false }
-);
+const Popup = dynamic(() => import("react-leaflet").then((mod) => mod.Popup), {
+  ssr: false,
+});
 
 interface InteractiveMapProps {
   parameter: string;
@@ -129,9 +128,14 @@ const getSentinel3FallbackFilename = (param: string): string => {
 };
 
 // 颜色映射函数
-const getColorForValue = (value: number, min: number, max: number, parameter: string): string => {
+const getColorForValue = (
+  value: number,
+  min: number,
+  max: number,
+  parameter: string
+): string => {
   const normalized = (value - min) / (max - min);
-  
+
   if (parameter.includes("sst") || parameter === "ssth") {
     // 海温：蓝色(冷) -> 红色(热)
     const r = Math.round(normalized * 255);
@@ -165,7 +169,7 @@ const getColorForValue = (value: number, min: number, max: number, parameter: st
       return `rgb(${r}, ${g}, ${b})`;
     }
   }
-  
+
   // 默认颜色方案
   const r = Math.round(normalized * 255);
   const g = Math.round((1 - normalized) * 255);
@@ -186,11 +190,17 @@ export function InteractiveMap({
   const [isInfoDialogOpen, setIsInfoDialogOpen] = useState(false);
 
   const currentParam = availableParameters.find((p) => p.id === parameter);
-  const satelliteMapping = SATELLITE_MAPPING[parameter as keyof typeof SATELLITE_MAPPING];
+  const satelliteMapping =
+    SATELLITE_MAPPING[parameter as keyof typeof SATELLITE_MAPPING];
 
   // 获取当前时间戳和文件名
   const currentTimestamp = useMemo(() => {
     if (!satelliteMapping) return null;
+
+    // all 模式不生成时间戳
+    if (timeRange.granularity === "all") {
+      return null;
+    }
 
     const utcDate = new Date(timeRange.start.getTime());
     utcDate.setUTCMinutes(0, 0, 0);
@@ -212,7 +222,7 @@ export function InteractiveMap({
       const second = String(utcDate.getUTCSeconds()).padStart(2, "0");
       return `${year}${month}${day}_${hour}${minute}${second}`;
     }
-  }, [parameter, timeRange.start, satelliteMapping]);
+  }, [parameter, timeRange.start, timeRange.granularity, satelliteMapping]);
 
   // 获取NC文件名
   const getNcFilename = useCallback(async (): Promise<string | null> => {
@@ -269,8 +279,22 @@ export function InteractiveMap({
         throw new Error("Could not determine NC filename");
       }
 
-      const targetTime = timeRange.start.toISOString();
-      const apiUrl = `http://localhost:8000/api/v1/satellites/${satelliteMapping.satellite}/${satelliteMapping.parameter}/data/${ncFilename}?target_time=${encodeURIComponent(targetTime)}`;
+      const targetTime =
+        timeRange.granularity === "all" ? "all" : timeRange.start.toISOString();
+      let apiUrl = `http://localhost:8000/api/v1/satellites/${
+        satelliteMapping.satellite
+      }/${
+        satelliteMapping.parameter
+      }/data/${ncFilename}?target_time=${encodeURIComponent(
+        targetTime
+      )}&mode=${encodeURIComponent(timeRange.granularity)}`;
+
+      // 如果是all模式，添加时间范围参数
+      if (timeRange.granularity === "all") {
+        apiUrl += `&start_time=${encodeURIComponent(
+          timeRange.start.toISOString()
+        )}&end_time=${encodeURIComponent(timeRange.end.toISOString())}`;
+      }
 
       console.log(`Loading interactive map data from: ${apiUrl}`);
 
@@ -284,7 +308,9 @@ export function InteractiveMap({
       console.log("Interactive map data loaded:", data);
     } catch (error) {
       console.error("Error loading map data:", error);
-      setError(error instanceof Error ? error.message : "Failed to load map data");
+      setError(
+        error instanceof Error ? error.message : "Failed to load map data"
+      );
     } finally {
       setIsLoading(false);
     }
@@ -339,7 +365,9 @@ export function InteractiveMap({
       >
         <div className="h-full flex items-center justify-center">
           <div className="text-center text-white/80">
-            <div className="text-lg font-medium mb-2">Interactive Map Error</div>
+            <div className="text-lg font-medium mb-2">
+              Interactive Map Error
+            </div>
             <div className="text-sm opacity-75 mb-4">{error}</div>
             <Button
               onClick={loadMapData}
@@ -406,7 +434,16 @@ export function InteractiveMap({
         </Badge>
         <Badge className="bg-white/20 backdrop-blur text-white border-white/30 whitespace-nowrap">
           <div className="text-xs truncate">
-            {timeRange.start.toLocaleString()}
+            {timeRange.end.toLocaleString("en-US", {
+              timeZone: "UTC",
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+              hour12: false,
+            })}
           </div>
         </Badge>
 
@@ -443,10 +480,21 @@ export function InteractiveMap({
                     Data Statistics
                   </label>
                   <div className="mt-1 p-2 bg-gray-50 rounded border text-sm space-y-1">
-                    <div>Min: {mapData.statistics.min.toFixed(3)} {mapData.statistics.units}</div>
-                    <div>Max: {mapData.statistics.max.toFixed(3)} {mapData.statistics.units}</div>
-                    <div>Mean: {mapData.statistics.mean.toFixed(3)} {mapData.statistics.units}</div>
-                    <div>Data Points: {mapData.statistics.count.toLocaleString()}</div>
+                    <div>
+                      Min: {mapData.statistics.min.toFixed(3)}{" "}
+                      {mapData.statistics.units}
+                    </div>
+                    <div>
+                      Max: {mapData.statistics.max.toFixed(3)}{" "}
+                      {mapData.statistics.units}
+                    </div>
+                    <div>
+                      Mean: {mapData.statistics.mean.toFixed(3)}{" "}
+                      {mapData.statistics.units}
+                    </div>
+                    <div>
+                      Data Points: {mapData.statistics.count.toLocaleString()}
+                    </div>
                   </div>
                 </div>
 
@@ -471,10 +519,13 @@ export function InteractiveMap({
                       <p>Data downsampled for performance</p>
                       <p>Factor: {mapData.metadata.downsample_factor}x</p>
                       <p>
-                        Original: {mapData.metadata.original_size.toLocaleString()} points
+                        Original:{" "}
+                        {mapData.metadata.original_size.toLocaleString()} points
                       </p>
                       <p>
-                        Displayed: {mapData.metadata.processed_size.toLocaleString()} points
+                        Displayed:{" "}
+                        {mapData.metadata.processed_size.toLocaleString()}{" "}
+                        points
                       </p>
                     </div>
                   </div>
@@ -515,7 +566,7 @@ export function InteractiveMap({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        
+
         {/* 渲染数据点 */}
         {mapData.data_points.map((point, index) => {
           const color = getColorForValue(
@@ -524,7 +575,7 @@ export function InteractiveMap({
             mapData.statistics.max,
             parameter
           );
-          
+
           return (
             <CircleMarker
               key={index}
@@ -538,7 +589,9 @@ export function InteractiveMap({
               <Popup>
                 <div className="text-sm">
                   <div className="font-medium">{currentParam?.name}</div>
-                  <div>Value: {point.value.toFixed(3)} {mapData.statistics.units}</div>
+                  <div>
+                    Value: {point.value.toFixed(3)} {mapData.statistics.units}
+                  </div>
                   <div>Lat: {point.lat.toFixed(4)}°</div>
                   <div>Lon: {point.lon.toFixed(4)}°</div>
                 </div>
@@ -550,5 +603,3 @@ export function InteractiveMap({
     </div>
   );
 }
-
-

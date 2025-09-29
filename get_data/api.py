@@ -182,6 +182,83 @@ def find_first_valid_timepoint(data_var):
     # If no valid data found, return first time point
     return data_var.values[0]
 
+def get_data_for_time_range(data_var, time_coords, start_time, end_time):
+    """Get data for a specific time range in all mode"""
+    from datetime import datetime
+    import numpy as np
+    try:
+        start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+        end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+        
+        # 找到时间范围内最接近end_time的数据点
+        valid_indices = []
+        for i, t in enumerate(time_coords):
+            t_dt = datetime.fromisoformat(str(t).replace('Z', '+00:00'))
+            if start_dt <= t_dt <= end_dt:
+                valid_indices.append(i)
+        
+        if valid_indices:
+            # 找到最接近end_time的索引
+            end_time_np = np.datetime64(end_dt)
+            time_diffs = np.abs([(np.datetime64(time_coords[i]) - end_time_np).astype('timedelta64[s]').astype(float) for i in valid_indices])
+            closest_idx = valid_indices[np.argmin(time_diffs)]
+            return data_var.values[closest_idx]
+        else:
+            # 如果没有找到时间范围内的数据，返回最新数据
+            return find_first_valid_timepoint(data_var)
+    except Exception as e:
+        print(f"Error processing time range for all mode: {e}")
+        return find_first_valid_timepoint(data_var)
+
+def get_data_for_day_week_mode(data_var, time_coords, target_time, mode):
+    """Get data for day or week mode"""
+    from datetime import datetime
+    import numpy as np
+    try:
+        target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
+        
+        if mode == "day":
+            # Day模式：找到当天最接近target_time的数据点
+            day_start = target_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = day_start.replace(hour=23, minute=59, second=59, microsecond=999999)
+            
+            valid_indices = []
+            for i, t in enumerate(time_coords):
+                t_dt = datetime.fromisoformat(str(t).replace('Z', '+00:00'))
+                if day_start <= t_dt <= day_end:
+                    valid_indices.append(i)
+            
+            if valid_indices:
+                # 找到最接近target_time的索引
+                target_time_np = np.datetime64(target_dt)
+                time_diffs = np.abs([(np.datetime64(time_coords[i]) - target_time_np).astype('timedelta64[s]').astype(float) for i in valid_indices])
+                closest_idx = valid_indices[np.argmin(time_diffs)]
+                return data_var.values[closest_idx]
+        
+        elif mode == "week":
+            # Week模式：找到过去7天最接近target_time的数据点
+            week_end = target_dt
+            week_start = week_end.replace(day=week_end.day-6)  # 改为6天，包含今天
+            
+            valid_indices = []
+            for i, t in enumerate(time_coords):
+                t_dt = datetime.fromisoformat(str(t).replace('Z', '+00:00'))
+                if week_start <= t_dt <= week_end:
+                    valid_indices.append(i)
+            
+            if valid_indices:
+                # 找到最接近target_time的索引
+                target_time_np = np.datetime64(target_dt)
+                time_diffs = np.abs([(np.datetime64(time_coords[i]) - target_time_np).astype('timedelta64[s]').astype(float) for i in valid_indices])
+                closest_idx = valid_indices[np.argmin(time_diffs)]
+                return data_var.values[closest_idx]
+        
+        # 如果没有找到合适的数据，返回最新数据
+        return find_first_valid_timepoint(data_var)
+    except Exception as e:
+        print(f"Error processing {mode} mode: {e}")
+        return find_first_valid_timepoint(data_var)
+
 def get_parameter_units(parameter: str, satellite: str = None) -> str:
     """Get the correct units for a parameter"""
     if satellite in ['sentinel3a', 'sentinel3b']:
@@ -853,7 +930,7 @@ async def open_file_path(request: OpenPathRequest):
         raise HTTPException(status_code=500, detail=f"Error opening path: {str(e)}")
 
 @app.get("/api/v1/satellites/{satellite}/{parameter}/stats/{filename}")
-async def get_data_stats(satellite: str, parameter: str, filename: str, target_time: str = None):
+async def get_data_stats(satellite: str, parameter: str, filename: str, target_time: str = None, start_time: str = None, end_time: str = None, mode: str = None):
     """Get data statistics (min, max, mean) from a specific NC file"""
     if satellite not in SATELLITES:
         raise HTTPException(status_code=404, detail=f"Satellite '{satellite}' not found")
@@ -896,7 +973,19 @@ async def get_data_stats(satellite: str, parameter: str, filename: str, target_t
             
             # Handle multi-time data using satellite-specific modules
             if len(data_var.shape) > 2:  # Multi-time data
-                if satellite in ['sentinel3a', 'sentinel3b']:
+                if target_time == "all" or target_time is None:
+                    # all 模式：根据时间范围返回合适的数据
+                    if start_time and end_time:
+                        time_coords = ds['time'].values
+                        data = get_data_for_time_range(data_var, time_coords, start_time, end_time)
+                    else:
+                        # 没有时间范围参数，返回最新数据
+                        data = find_first_valid_timepoint(data_var)
+                elif mode in ['day', 'week']:
+                    # Day和Week模式：使用相应的数据处理函数
+                    time_coords = ds['time'].values
+                    data = get_data_for_day_week_mode(data_var, time_coords, target_time, mode)
+                elif satellite in ['sentinel3a', 'sentinel3b']:
                     # Use Sentinel-3 specific data processing with static image matching logic
                     sentinel3_api = get_sentinel3_api()
                     time_coords = ds['time'].values
@@ -967,7 +1056,10 @@ async def get_filtered_image(
     filename: str,
     min_value: Optional[float] = None,
     max_value: Optional[float] = None,
-    target_time: str = None
+    target_time: str = None,
+    start_time: str = None,
+    end_time: str = None,
+    mode: str = None
 ):
     """Generate a filtered image based on value range"""
     if satellite not in SATELLITES:
@@ -1015,7 +1107,19 @@ async def get_filtered_image(
             
             # Handle multi-time data using satellite-specific modules
             if len(data_var.shape) > 2:  # Multi-time data
-                if satellite in ['sentinel3a', 'sentinel3b']:
+                if target_time == "all" or target_time is None:
+                    # all 模式：根据时间范围返回合适的数据
+                    if start_time and end_time:
+                        time_coords = ds['time'].values
+                        data = get_data_for_time_range(data_var, time_coords, start_time, end_time)
+                    else:
+                        # 没有时间范围参数，返回最新数据
+                        data = find_first_valid_timepoint(data_var)
+                elif mode in ['day', 'week']:
+                    # Day和Week模式：使用相应的数据处理函数
+                    time_coords = ds['time'].values
+                    data = get_data_for_day_week_mode(data_var, time_coords, target_time, mode)
+                elif satellite in ['sentinel3a', 'sentinel3b']:
                     # Use Sentinel-3 specific data processing with static image matching logic
                     sentinel3_api = get_sentinel3_api()
                     time_coords = ds['time'].values
@@ -1162,7 +1266,10 @@ async def get_nc_data_for_map(
     filename: str,
     target_time: str = None,
     min_value: Optional[float] = None,
-    max_value: Optional[float] = None
+    max_value: Optional[float] = None,
+    start_time: str = None,
+    end_time: str = None,
+    mode: str = None
 ):
     """Get NetCDF data in JSON format for interactive mapping"""
     if satellite not in SATELLITES:
@@ -1206,7 +1313,19 @@ async def get_nc_data_for_map(
             
             # Handle multi-time data using satellite-specific modules
             if len(data_var.shape) > 2:  # Multi-time data
-                if satellite in ['sentinel3a', 'sentinel3b']:
+                if target_time == "all" or target_time is None:
+                    # all 模式：根据时间范围返回合适的数据
+                    if start_time and end_time:
+                        time_coords = ds['time'].values
+                        data = get_data_for_time_range(data_var, time_coords, start_time, end_time)
+                    else:
+                        # 没有时间范围参数，返回最新数据
+                        data = find_first_valid_timepoint(data_var)
+                elif mode in ['day', 'week']:
+                    # Day和Week模式：使用相应的数据处理函数
+                    time_coords = ds['time'].values
+                    data = get_data_for_day_week_mode(data_var, time_coords, target_time, mode)
+                elif satellite in ['sentinel3a', 'sentinel3b']:
                     # Use Sentinel-3 specific data processing with static image matching logic
                     sentinel3_api = get_sentinel3_api()
                     time_coords = ds['time'].values
@@ -1360,7 +1479,10 @@ async def get_nc_grid_data_for_heatmap(
     target_time: str = None,
     min_value: Optional[float] = None,
     max_value: Optional[float] = None,
-    max_grid_size: int = 200
+    max_grid_size: int = 200,
+    start_time: str = None,
+    end_time: str = None,
+    mode: str = None
 ):
     """Get NetCDF data as a regular grid for heatmap visualization - mimics matplotlib's pcolormesh"""
     if satellite not in SATELLITES:
@@ -1405,7 +1527,19 @@ async def get_nc_grid_data_for_heatmap(
             
             # Handle multi-time data using satellite-specific modules
             if len(data_var.shape) > 2:  # Multi-time data
-                if satellite in ['sentinel3a', 'sentinel3b']:
+                if target_time == "all" or target_time is None:
+                    # all 模式：根据时间范围返回合适的数据
+                    if start_time and end_time:
+                        time_coords = ds['time'].values
+                        data = get_data_for_time_range(data_var, time_coords, start_time, end_time)
+                    else:
+                        # 没有时间范围参数，返回最新数据
+                        data = find_first_valid_timepoint(data_var)
+                elif mode in ['day', 'week']:
+                    # Day和Week模式：使用相应的数据处理函数
+                    time_coords = ds['time'].values
+                    data = get_data_for_day_week_mode(data_var, time_coords, target_time, mode)
+                elif satellite in ['sentinel3a', 'sentinel3b']:
                     # Use Sentinel-3 specific data processing with static image matching logic
                     sentinel3_api = get_sentinel3_api()
                     time_coords = ds['time'].values
@@ -1608,7 +1742,10 @@ async def get_simple_nc_data(
     satellite: str, 
     parameter: str, 
     filename: str,
-    target_time: str = None
+    target_time: str = None,
+    start_time: str = None,
+    end_time: str = None,
+    mode: str = None
 ):
     """Get NetCDF data in the simplest format possible - just like matplotlib reads it"""
     if satellite not in SATELLITES:
@@ -1650,7 +1787,19 @@ async def get_simple_nc_data(
             
             # Handle multi-time data
             if len(data_var.shape) > 2:
-                if satellite in ['sentinel3a', 'sentinel3b']:
+                if target_time == "all" or target_time is None:
+                    # all 模式：根据时间范围返回合适的数据
+                    if start_time and end_time:
+                        time_coords = ds['time'].values
+                        data = get_data_for_time_range(data_var, time_coords, start_time, end_time)
+                    else:
+                        # 没有时间范围参数，返回最新数据
+                        data = find_first_valid_timepoint(data_var)
+                elif mode in ['day', 'week']:
+                    # Day和Week模式：使用相应的数据处理函数
+                    time_coords = ds['time'].values
+                    data = get_data_for_day_week_mode(data_var, time_coords, target_time, mode)
+                elif satellite in ['sentinel3a', 'sentinel3b']:
                     sentinel3_api = get_sentinel3_api()
                     time_coords = ds['time'].values
                     data = sentinel3_api.get_sentinel3_data(data_var, target_time, time_coords)

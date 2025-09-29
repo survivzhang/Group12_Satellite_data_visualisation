@@ -29,8 +29,8 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { useDataStore } from "@/hooks/useDataStore";
-import { InteractiveMap } from "@/components/InteractiveMap";
 import { CanvasInteractiveMap } from "@/components/CanvasInteractiveMap";
+import { InteractiveMap } from "@/components/InteractiveMap";
 
 interface ResearchMapProps {
   parameter: string;
@@ -56,7 +56,6 @@ interface ResearchMapProps {
   onRangeReset?: (parameter: string) => void;
 }
 
-// 卫星参数映射 - 更新为统一数据结构
 const SATELLITE_MAPPING = {
   ssth: {
     satellite: "himawari",
@@ -110,6 +109,22 @@ function extractTimeFromSentinel3Filename(filename: string): Date | null {
 function extractTimeFromSwotFilename(filename: string): Date | null {
   // SWOT 文件名格式: YYYYMMDD_HHMMSS.png
   const match = filename.match(/(\d{8})_(\d{6})/);
+  if (match) {
+    const [, dateStr, timeStr] = match;
+    const year = parseInt(dateStr.substring(0, 4));
+    const month = parseInt(dateStr.substring(4, 6)) - 1; // JavaScript months are 0-based
+    const day = parseInt(dateStr.substring(6, 8));
+    const hour = parseInt(timeStr.substring(0, 2));
+    const minute = parseInt(timeStr.substring(2, 4));
+    const second = parseInt(timeStr.substring(4, 6));
+    return new Date(Date.UTC(year, month, day, hour, minute, second));
+  }
+  return null;
+}
+
+function extractTimeFromHimawariFilename(filename: string): Date | null {
+  // Himawari 文件名格式: YYYYMMDDHHMMSS.png
+  const match = filename.match(/(\d{8})(\d{6})\.png$/);
   if (match) {
     const [, dateStr, timeStr] = match;
     const year = parseInt(dateStr.substring(0, 4));
@@ -218,7 +233,7 @@ export function ResearchMap({
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [isGeneratingFilteredImage, setIsGeneratingFilteredImage] =
     useState(false);
-  
+
   // State for current image path display functionality
   const [currentImageInfo, setCurrentImageInfo] = useState<{
     filename: string;
@@ -226,39 +241,51 @@ export function ResearchMap({
     localPath?: string;
   } | null>(null);
   const [isImageInfoDialogOpen, setIsImageInfoDialogOpen] = useState(false);
-  
+
   // State for map view mode
-  const [viewMode, setViewMode] = useState<"static" | "interactive" | "canvas">("static");
-  
+  const [viewMode, setViewMode] = useState<"static" | "interactive" | "canvas">(
+    "static"
+  );
+
   // Zoom functionality state
   const [zoomLevel, setZoomLevel] = useState(1);
   const [panPosition, setPanPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [imageContainer, setImageContainer] = useState<HTMLDivElement | null>(null);
-  const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
-  const [containerDimensions, setContainerDimensions] = useState({ width: 0, height: 0 });
+  const [imageContainer, setImageContainer] = useState<HTMLDivElement | null>(
+    null
+  );
+  const [imageDimensions, setImageDimensions] = useState({
+    width: 0,
+    height: 0,
+  });
+  const [containerDimensions, setContainerDimensions] = useState({
+    width: 0,
+    height: 0,
+  });
   const [baseScale, setBaseScale] = useState(1);
 
-  // 如果没有传入getParameterFiles，则使用useDataStore（向后兼容）
   const dataStore = !getParameterFiles ? useDataStore() : null;
   const getFiles = getParameterFiles || dataStore?.getParameterFiles;
-
   const currentParam = availableParameters.find((p) => p.id === parameter);
   const satelliteMapping =
     SATELLITE_MAPPING[parameter as keyof typeof SATELLITE_MAPPING];
 
-  // 获取当前时间戳和文件名
   const currentTimestamp = useMemo(() => {
     if (!satelliteMapping) return null;
 
-    // Ensure UTC time and round down to the nearest hour
-    const utcDate = new Date(timeRange.start.getTime());
-    utcDate.setUTCMinutes(0, 0, 0);
+    // 对于所有模式，都使用 timeRange.end 作为当前时间点
+    // 因为 TimelineSlider 将变化的时间放在 end 字段中
+    const targetTime = timeRange.end;
+    const utcDate = new Date(targetTime.getTime());
 
-    // 不同卫星使用不同的时间戳格式
+    // 对于 Himawari，需要将分钟和秒设置为0（因为文件名格式是 YYYYMMDDHH0000）
+    // 对于其他卫星，保持精确时间
     if (parameter === "ssth") {
-      // Himawari格式: YYYYMMDDHHMMSS
+      utcDate.setUTCMinutes(0, 0, 0);
+    }
+
+    if (parameter === "ssth") {
       const year = utcDate.getUTCFullYear();
       const month = String(utcDate.getUTCMonth() + 1).padStart(2, "0");
       const day = String(utcDate.getUTCDate()).padStart(2, "0");
@@ -274,7 +301,6 @@ export function ResearchMap({
       const second = String(utcDate.getUTCSeconds()).padStart(2, "0");
       return `${year}${month}${day}_${hour}${minute}${second}`;
     } else {
-      // Sentinel-3格式: YYYYMMDD_HHMMSS格式用于匹配
       const year = utcDate.getUTCFullYear();
       const month = String(utcDate.getUTCMonth() + 1).padStart(2, "0");
       const day = String(utcDate.getUTCDate()).padStart(2, "0");
@@ -283,7 +309,13 @@ export function ResearchMap({
       const second = String(utcDate.getUTCSeconds()).padStart(2, "0");
       return `${year}${month}${day}_${hour}${minute}${second}`;
     }
-  }, [parameter, timeRange.start, satelliteMapping]);
+  }, [
+    parameter,
+    timeRange.start,
+    timeRange.end,
+    timeRange.granularity,
+    satelliteMapping,
+  ]);
 
   // Sync temp values with current range when dialog opens
   useEffect(() => {
@@ -324,17 +356,24 @@ export function ResearchMap({
                   ncFilename = getSentinel3FallbackFilename(parameter);
                 } else {
                   const ncFiles = await getFiles?.(parameter, "nc");
-                if (ncFiles && ncFiles.length > 0) {
-                  // Sentinel-3通常只有一个NC文件包含整个查询时间范围的数据
-                  ncFilename = ncFiles[0].filename;
-                  console.log(`Using Sentinel-3 NC file for ${parameter}: ${ncFilename}`);
-                } else {
-                  console.warn(`No NC files found for ${parameter}, using fallback`);
-                  ncFilename = getSentinel3FallbackFilename(parameter);
-                }
+                  if (ncFiles && ncFiles.length > 0) {
+                    // Sentinel-3通常只有一个NC文件包含整个查询时间范围的数据
+                    ncFilename = ncFiles[0].filename;
+                    console.log(
+                      `Using Sentinel-3 NC file for ${parameter}: ${ncFilename}`
+                    );
+                  } else {
+                    console.warn(
+                      `No NC files found for ${parameter}, using fallback`
+                    );
+                    ncFilename = getSentinel3FallbackFilename(parameter);
+                  }
                 }
               } catch (error) {
-                console.warn("Failed to get NC files list, using fallback:", error);
+                console.warn(
+                  "Failed to get NC files list, using fallback:",
+                  error
+                );
                 ncFilename = getSentinel3FallbackFilename(parameter);
               }
             }
@@ -453,14 +492,37 @@ export function ResearchMap({
     }
   }, [parameter, satelliteMapping, getFiles, currentTimestamp]);
 
-
   // 通用文件查找函数：根据时间查找最合适的文件
   const findBestFileForTime = (files: any[], selectedTime: Date) => {
+    console.log(`findBestFileForTime called for ${parameter}:`, {
+      selectedTime: selectedTime.toISOString(),
+      granularity: timeRange.granularity,
+      filesCount: files.length,
+    });
+
     if (parameter === "ssth") {
-      // Himawari 文件查找 - 查找包含时间戳的文件
-      return files.find(
-        (file) => file.filename && file.filename.startsWith(currentTimestamp)
-      );
+      // Himawari 文件查找 - 寻找选中时间点之前最近的那张图
+      let bestFile = null;
+      let bestTimeDiff = Infinity;
+
+      for (const file of files) {
+        const fileTime = extractTimeFromHimawariFilename(file.filename);
+        if (fileTime && fileTime.getTime() <= selectedTime.getTime()) {
+          const timeDiff = selectedTime.getTime() - fileTime.getTime();
+          if (timeDiff < bestTimeDiff) {
+            bestTimeDiff = timeDiff;
+            bestFile = file;
+          }
+        }
+      }
+
+      console.log(`Himawari file search result:`, {
+        bestFile: bestFile?.filename,
+        bestTimeDiff: bestTimeDiff,
+        selectedTime: selectedTime.toISOString(),
+      });
+
+      return bestFile;
     } else {
       // Sentinel-3 文件查找 - 寻找选中时间点之前最近的那张图
       let bestFile = null;
@@ -476,17 +538,31 @@ export function ResearchMap({
           }
         }
       }
+
+      console.log(`Sentinel-3 file search result:`, {
+        bestFile: bestFile?.filename,
+        bestTimeDiff: bestTimeDiff,
+        selectedTime: selectedTime.toISOString(),
+      });
+
       return bestFile;
     }
   };
 
   useEffect(() => {
-    if (satelliteMapping && currentTimestamp && availableFiles.length > 0) {
-      // 寻找最匹配的文件
+    if (satelliteMapping && availableFiles.length > 0) {
+      console.log("Image loading effect triggered:", {
+        parameter,
+        granularity: timeRange.granularity,
+        start: timeRange.start.toISOString(),
+        end: timeRange.end.toISOString(),
+        currentTimestamp,
+        availableFilesCount: availableFiles.length,
+      });
       let targetFile: any = null;
 
       // 使用通用文件查找函数
-      targetFile = findBestFileForTime(availableFiles, timeRange.start);
+      targetFile = findBestFileForTime(availableFiles, timeRange.end);
 
       console.log(`Looking for file with timestamp: ${currentTimestamp}`);
       console.log(
@@ -496,49 +572,49 @@ export function ResearchMap({
 
       if (targetFile) {
         const pngUrl = `http://localhost:8000${targetFile.url}`;
-
-        // 获取对应的NC文件名来获取数据统计信息
         const handleStatsRetrieval = async () => {
           let ncFilename;
           if (parameter === "ssth") {
             ncFilename = targetFile.filename.replace(".png", ".nc");
           } else {
-            // 对于Sentinel-3，动态获取NC文件（类似Himawari的方式）
-              try {
-                const ncFiles = await getFiles?.(parameter, "nc");
+            try {
+              const ncFiles = await getFiles?.(parameter, "nc");
               if (ncFiles && ncFiles.length > 0) {
-                // 使用最新的NC文件（按修改时间排序）
                 ncFilename = ncFiles[0].filename;
-                console.log(`Using latest NC file for stats ${parameter}: ${ncFilename}`);
+                console.log(
+                  `Using latest NC file for stats ${parameter}: ${ncFilename}`
+                );
               } else {
-                console.warn(`No NC files found for stats ${parameter}, using fallback`);
+                console.warn(
+                  `No NC files found for stats ${parameter}, using fallback`
+                );
                 ncFilename = getSentinel3FallbackFilename(parameter);
               }
             } catch (error) {
-              console.warn("Failed to get NC files list for stats, using fallback:", error);
+              console.warn(
+                "Failed to get NC files list for stats, using fallback:",
+                error
+              );
               ncFilename = getSentinel3FallbackFilename(parameter);
             }
           }
-
-          // 传递目标时间给API
-          const targetTime = timeRange.start.toISOString();
+          const targetTime =
+            timeRange.granularity === "all"
+              ? "all"
+              : timeRange.start.toISOString();
           console.log(
             `Fetching stats for ${parameter} using NC file: ${ncFilename} at time: ${targetTime}`
           );
           fetchDataStats(ncFilename, targetTime);
         };
-
-        // 执行异步函数
         handleStatsRetrieval();
 
         // 避免重复加载相同的图片
         if (imageUrl === pngUrl) {
           return;
         }
-
         setIsLoading(true);
         setImageError(false);
-
         console.log(`Loading ${parameter} image:`, targetFile.filename);
         console.log(`Image URL: ${pngUrl}`);
 
@@ -547,20 +623,22 @@ export function ResearchMap({
         img.onload = () => {
           setImageUrl(pngUrl);
           setIsLoading(false);
-          
-          // Update current image info for path display functionality  
+
+          // Update current image info for path display functionality
           // Use absolute directory path from backend if available
-          const absolutePath = targetFile.directory 
-            ? `${targetFile.directory}${targetFile.directory.includes('\\') ? '\\' : '/'}${targetFile.filename}`
+          const absolutePath = targetFile.directory
+            ? `${targetFile.directory}${
+                targetFile.directory.includes("\\") ? "\\" : "/"
+              }${targetFile.filename}`
             : `data/${satelliteMapping.satellite}/${satelliteMapping.parameter}/png/${targetFile.filename}`;
-          
+
           const imageInfo = {
             filename: targetFile.filename,
             url: pngUrl,
-            localPath: absolutePath
+            localPath: absolutePath,
           };
           setCurrentImageInfo(imageInfo);
-          console.log('Current image info updated:', imageInfo);
+          console.log("Current image info updated:", imageInfo);
         };
         img.onerror = () => {
           console.warn(`PNG failed to load: ${targetFile.filename}`);
@@ -592,7 +670,16 @@ export function ResearchMap({
       setImageError(false);
       setCurrentImageInfo(null); // Clear image info for unsupported parameters
     }
-  }, [satelliteMapping, currentTimestamp, availableFiles, parameter, imageUrl]);
+  }, [
+    satelliteMapping,
+    currentTimestamp,
+    availableFiles,
+    parameter,
+    imageUrl,
+    timeRange.start,
+    timeRange.end,
+    timeRange.granularity,
+  ]);
 
   // ResizeObserver to track container dimensions and calculate base scale
   useEffect(() => {
@@ -614,40 +701,51 @@ export function ResearchMap({
 
   // Calculate base scale when image dimensions or container dimensions change
   useEffect(() => {
-    if (imageDimensions.width && imageDimensions.height && containerDimensions.width && containerDimensions.height) {
+    if (
+      imageDimensions.width &&
+      imageDimensions.height &&
+      containerDimensions.width &&
+      containerDimensions.height
+    ) {
       const scaleX = containerDimensions.width / imageDimensions.width;
       const scaleY = containerDimensions.height / imageDimensions.height;
       const newBaseScale = Math.min(scaleX, scaleY); // fit inside container
-      
+
       setBaseScale(newBaseScale);
-      
+
       // Reset pan position when base scale changes (e.g., when entering/leaving fullscreen)
       setPanPosition({ x: 0, y: 0 });
     }
   }, [imageDimensions, containerDimensions]);
 
   // Zoom handlers with proper origin point and boundaries
-  const constrainPan = (x: number, y: number, zoom: number, containerWidth: number, containerHeight: number) => {
+  const constrainPan = (
+    x: number,
+    y: number,
+    zoom: number,
+    containerWidth: number,
+    containerHeight: number
+  ) => {
     if (zoom <= 1) return { x: 0, y: 0 };
-    
+
     // Calculate the actual displayed size using baseScale * zoom
     const displayScale = baseScale * zoom;
     const displayedWidth = imageDimensions.width * displayScale;
     const displayedHeight = imageDimensions.height * displayScale;
-    
+
     // Calculate maximum pan distances to keep image in view
     const maxPanX = Math.max(0, (displayedWidth - containerWidth) / 2);
     const maxPanY = Math.max(0, (displayedHeight - containerHeight) / 2);
-    
+
     return {
       x: Math.max(-maxPanX, Math.min(maxPanX, x)),
-      y: Math.max(-maxPanY, Math.min(maxPanY, y))
+      y: Math.max(-maxPanY, Math.min(maxPanY, y)),
     };
   };
 
   const handleZoomChange = (value: number[]) => {
     const newZoom = value[0];
-    
+
     if (!imageContainer) {
       setZoomLevel(newZoom);
       setPanPosition({ x: 0, y: 0 });
@@ -657,38 +755,54 @@ export function ResearchMap({
     const containerRect = imageContainer.getBoundingClientRect();
     const containerCenterX = containerRect.width / 2;
     const containerCenterY = containerRect.height / 2;
-    
+
     // Calculate scale factor
     const scaleFactor = newZoom / zoomLevel;
-    
+
     // For zoom from slider, always zoom from center
     const newPanX = panPosition.x * scaleFactor;
     const newPanY = panPosition.y * scaleFactor;
-    
+
     // Apply constraints
-    const constrainedPan = constrainPan(newPanX, newPanY, newZoom, containerRect.width, containerRect.height);
-    
+    const constrainedPan = constrainPan(
+      newPanX,
+      newPanY,
+      newZoom,
+      containerRect.width,
+      containerRect.height
+    );
+
     setZoomLevel(newZoom);
     setPanPosition(constrainedPan);
   };
 
-  const handleZoomAtPoint = (clientX: number, clientY: number, newZoom: number) => {
+  const handleZoomAtPoint = (
+    clientX: number,
+    clientY: number,
+    newZoom: number
+  ) => {
     if (!imageContainer) return;
 
     const containerRect = imageContainer.getBoundingClientRect();
     const pointX = clientX - containerRect.left;
     const pointY = clientY - containerRect.top;
-    
+
     // Calculate scale factor
     const scaleFactor = newZoom / zoomLevel;
-    
+
     // Calculate new pan position to zoom towards the point
     const newPanX = pointX - (pointX - panPosition.x) * scaleFactor;
     const newPanY = pointY - (pointY - panPosition.y) * scaleFactor;
-    
+
     // Apply constraints
-    const constrainedPan = constrainPan(newPanX, newPanY, newZoom, containerRect.width, containerRect.height);
-    
+    const constrainedPan = constrainPan(
+      newPanX,
+      newPanY,
+      newZoom,
+      containerRect.width,
+      containerRect.height
+    );
+
     setZoomLevel(newZoom);
     setPanPosition(constrainedPan);
   };
@@ -703,7 +817,7 @@ export function ResearchMap({
     const img = e.currentTarget;
     setImageDimensions({
       width: img.naturalWidth,
-      height: img.naturalHeight
+      height: img.naturalHeight,
     });
   };
 
@@ -711,7 +825,10 @@ export function ResearchMap({
   const handleMouseDown = (e: React.MouseEvent) => {
     if (zoomLevel > 1) {
       setIsDragging(true);
-      setDragStart({ x: e.clientX - panPosition.x, y: e.clientY - panPosition.y });
+      setDragStart({
+        x: e.clientX - panPosition.x,
+        y: e.clientY - panPosition.y,
+      });
     }
   };
 
@@ -722,8 +839,14 @@ export function ResearchMap({
         x: e.clientX - dragStart.x,
         y: e.clientY - dragStart.y,
       };
-      
-      const constrainedPan = constrainPan(newPan.x, newPan.y, zoomLevel, containerRect.width, containerRect.height);
+
+      const constrainedPan = constrainPan(
+        newPan.x,
+        newPan.y,
+        zoomLevel,
+        containerRect.width,
+        containerRect.height
+      );
       setPanPosition(constrainedPan);
     }
   };
@@ -741,7 +864,7 @@ export function ResearchMap({
     e.preventDefault();
     const delta = e.deltaY > 0 ? -0.1 : 0.1;
     const newZoom = Math.max(0.5, Math.min(5, zoomLevel + delta));
-    
+
     if (newZoom !== zoomLevel) {
       handleZoomAtPoint(e.clientX, e.clientY, newZoom);
     }
@@ -755,102 +878,39 @@ export function ResearchMap({
     );
   }
 
-  // 选择要渲染的内容
-  if (viewMode === "interactive") {
-    return (
-      <div
-        className={`relative ${
-          isFullscreen ? "h-full" : "h-96"
-        } rounded-lg overflow-hidden`}
-      >
-        {/* 视图切换按钮 */}
-        <div className="absolute top-4 right-4 z-[1000] flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setViewMode("canvas")}
-            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
-            title="Switch to canvas heatmap view"
-          >
-            <Globe className="h-3 w-3 mr-1" />
-            Canvas
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setViewMode("static")}
-            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
-            title="Switch to static image view"
-          >
-            <Camera className="h-3 w-3 mr-1" />
-            Static
-          </Button>
-        </div>
-
-        <InteractiveMap
-          parameter={parameter}
-          timeRange={timeRange}
-          availableParameters={availableParameters}
-          isFullscreen={isFullscreen}
-          getParameterFiles={getFiles}
-        />
-      </div>
-    );
-  }
-
+  // Render different components based on view mode
   if (viewMode === "canvas") {
     return (
-      <div
-        className={`relative ${
-          isFullscreen ? "h-full" : "h-96"
-        } rounded-lg overflow-hidden`}
-      >
-        {/* 视图切换按钮 */}
-        <div className="absolute top-4 right-4 z-[1000] flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setViewMode("interactive")}
-            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
-            title="Switch to point interactive view"
-          >
-            <MapPin className="h-3 w-3 mr-1" />
-            Points
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setViewMode("static")}
-            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
-            title="Switch to static image view"
-          >
-            <Camera className="h-3 w-3 mr-1" />
-            Static
-          </Button>
-        </div>
-
-        <CanvasInteractiveMap
-          parameter={parameter}
-          timeRange={timeRange}
-          availableParameters={availableParameters}
-          isFullscreen={isFullscreen}
-          getParameterFiles={getFiles}
-        />
-      </div>
+      <CanvasInteractiveMap
+        parameter={parameter}
+        timeRange={timeRange}
+        availableParameters={availableParameters}
+        isFullscreen={isFullscreen}
+        getParameterFiles={getParameterFiles}
+      />
     );
   }
 
+  if (viewMode === "interactive") {
+    return (
+      <InteractiveMap
+        parameter={parameter}
+        timeRange={timeRange}
+        availableParameters={availableParameters}
+        isFullscreen={isFullscreen}
+        getParameterFiles={getParameterFiles}
+      />
+    );
+  }
 
+  // Default static view
   return (
     <div
       className={`relative ${
         isFullscreen ? "h-full" : "h-96"
       } rounded-lg overflow-hidden`}
       style={{
-        background: `
-        radial-gradient(ellipse at 20% 30%, #0a1a2e 0%, #16213e 40%, #1e3a8a 80%, #3b82f6 100%),
-        linear-gradient(135deg, #0f172a 0%, #1e3a8a 30%, #3b82f6 60%, #60a5fa 100%)
-      `,
+        background: `radial-gradient(ellipse at 20% 30%, #0a1a2e 0%, #16213e 40%, #1e3a8a 80%, #3b82f6 100%), linear-gradient(135deg, #0f172a 0%, #1e3a8a 30%, #3b82f6 60%, #60a5fa 100%)`,
         backgroundBlendMode: "multiply, normal",
       }}
     >
@@ -859,12 +919,13 @@ export function ResearchMap({
           ref={setImageContainer}
           className="absolute inset-0 w-full h-full flex items-center justify-center overflow-hidden cursor-grab"
           style={{
-            background: `
-            radial-gradient(ellipse at center, #0a1a2e 0%, #16213e 30%, #1e3a8a 70%, #3b82f6 100%),
-            linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #3b82f6 100%)
-          `,
+            background: `radial-gradient(ellipse at center, #0a1a2e 0%, #16213e 30%, #1e3a8a 70%, #3b82f6 100%), linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #3b82f6 100%)`,
             backgroundBlendMode: "multiply, normal",
-            cursor: isDragging ? 'grabbing' : zoomLevel > 1 ? 'grab' : 'default',
+            cursor: isDragging
+              ? "grabbing"
+              : zoomLevel > 1
+              ? "grab"
+              : "default",
           }}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
@@ -874,8 +935,10 @@ export function ResearchMap({
         >
           <div
             style={{
-              transform: `translate(${panPosition.x}px, ${panPosition.y}px) scale(${baseScale * zoomLevel})`,
-              transition: isDragging ? 'none' : 'transform 0.2s ease-out',
+              transform: `translate(${panPosition.x}px, ${
+                panPosition.y
+              }px) scale(${baseScale * zoomLevel})`,
+              transition: isDragging ? "none" : "transform 0.2s ease-out",
             }}
           >
             {/* Show filtered image if available, otherwise show original */}
@@ -974,7 +1037,10 @@ export function ResearchMap({
 
         {/* Image Path Display Button */}
         {imageUrl && currentImageInfo && (
-          <Dialog open={isImageInfoDialogOpen} onOpenChange={setIsImageInfoDialogOpen}>
+          <Dialog
+            open={isImageInfoDialogOpen}
+            onOpenChange={setIsImageInfoDialogOpen}
+          >
             <DialogTrigger asChild>
               <Button
                 variant="outline"
@@ -993,14 +1059,18 @@ export function ResearchMap({
               <div className="space-y-4">
                 <div className="space-y-3">
                   <div>
-                    <Label className="text-sm font-medium text-gray-700">Filename</Label>
+                    <Label className="text-sm font-medium text-gray-700">
+                      Filename
+                    </Label>
                     <div className="mt-1 p-2 bg-gray-50 rounded border text-sm font-mono">
                       {currentImageInfo.filename}
                     </div>
                   </div>
-                  
+
                   <div>
-                    <Label className="text-sm font-medium text-gray-700">Local Path</Label>
+                    <Label className="text-sm font-medium text-gray-700">
+                      Local Path
+                    </Label>
                     <div className="mt-1 p-2 bg-gray-50 rounded border text-sm font-mono break-all">
                       {currentImageInfo.localPath}
                     </div>
@@ -1011,38 +1081,56 @@ export function ResearchMap({
                         onClick={async () => {
                           try {
                             // 尝试通过后端API打开文件管理器
-                            const response = await fetch('http://localhost:8000/api/v1/open-path', {
-                              method: 'POST',
-                              headers: {
-                                'Content-Type': 'application/json',
-                              },
-                              body: JSON.stringify({
-                                path: currentImageInfo.localPath
-                              })
-                            });
-                            
+                            const response = await fetch(
+                              "http://localhost:8000/api/v1/open-path",
+                              {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                },
+                                body: JSON.stringify({
+                                  path: currentImageInfo.localPath,
+                                }),
+                              }
+                            );
+
                             if (response.ok) {
-                              console.log('File manager opened successfully');
+                              console.log("File manager opened successfully");
                             } else {
-                              throw new Error('Backend API failed');
+                              throw new Error("Backend API failed");
                             }
                           } catch (error) {
-                            console.error('Failed to open path via backend:', error);
-                            
+                            console.error(
+                              "Failed to open path via backend:",
+                              error
+                            );
+
                             // 后备方案：尝试使用浏览器原生方法
                             try {
                               // 对于Windows系统，尝试使用file:// protocol
-                              const fileUrl = `file:///${currentImageInfo.localPath?.replace(/\\/g, '/')}`;
-                              window.open(fileUrl, '_blank');
+                              const fileUrl = `file:///${currentImageInfo.localPath?.replace(
+                                /\\/g,
+                                "/"
+                              )}`;
+                              window.open(fileUrl, "_blank");
                             } catch (fallbackError) {
-                              console.error('Fallback method also failed:', fallbackError);
+                              console.error(
+                                "Fallback method also failed:",
+                                fallbackError
+                              );
                               // 最后的后备方案：复制路径到剪贴板
-                              navigator.clipboard.writeText(currentImageInfo.localPath || '')
+                              navigator.clipboard
+                                .writeText(currentImageInfo.localPath || "")
                                 .then(() => {
-                                  alert('Cannot open file manager. Path copied to clipboard instead.');
+                                  alert(
+                                    "Cannot open file manager. Path copied to clipboard instead."
+                                  );
                                 })
                                 .catch(() => {
-                                  alert('Cannot open file manager or copy path. Please manually navigate to: ' + currentImageInfo.localPath);
+                                  alert(
+                                    "Cannot open file manager or copy path. Please manually navigate to: " +
+                                      currentImageInfo.localPath
+                                  );
                                 });
                             }
                           }
@@ -1051,19 +1139,20 @@ export function ResearchMap({
                         <FolderOpen className="h-3 w-3 mr-1" />
                         Open Path
                       </Button>
-                      
+
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          navigator.clipboard.writeText(currentImageInfo.localPath || '')
+                          navigator.clipboard
+                            .writeText(currentImageInfo.localPath || "")
                             .then(() => {
-                              console.log('Path copied to clipboard');
+                              console.log("Path copied to clipboard");
                               // 可以添加toast通知
                             })
                             .catch((err) => {
-                              console.error('Failed to copy path:', err);
-                              alert('Failed to copy path to clipboard');
+                              console.error("Failed to copy path:", err);
+                              alert("Failed to copy path to clipboard");
                             });
                         }}
                       >
@@ -1072,9 +1161,11 @@ export function ResearchMap({
                       </Button>
                     </div>
                   </div>
-                  
+
                   <div>
-                    <Label className="text-sm font-medium text-gray-700">Server URL</Label>
+                    <Label className="text-sm font-medium text-gray-700">
+                      Server URL
+                    </Label>
                     <div className="mt-1 p-2 bg-gray-50 rounded border text-sm font-mono break-all">
                       {currentImageInfo.url}
                     </div>
@@ -1083,26 +1174,28 @@ export function ResearchMap({
                       size="sm"
                       className="mt-2"
                       onClick={() => {
-                        window.open(currentImageInfo.url, '_blank');
+                        window.open(currentImageInfo.url, "_blank");
                       }}
                     >
                       <FolderOpen className="h-3 w-3 mr-1" />
                       Open in Browser
                     </Button>
                   </div>
-                  
+
                   <div className="p-3 bg-blue-50 rounded border border-blue-200">
                     <p className="text-xs text-blue-700 font-medium mb-1">
                       Image Details:
                     </p>
                     <div className="text-xs text-blue-600">
-                      <p>Satellite: {satelliteMapping?.satellite.toUpperCase()}</p>
+                      <p>
+                        Satellite: {satelliteMapping?.satellite.toUpperCase()}
+                      </p>
                       <p>Parameter: {currentParam?.name}</p>
                       <p>Timestamp: {timeRange.start.toLocaleString()}</p>
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="flex justify-end">
                   <Button
                     variant="outline"
@@ -1372,7 +1465,7 @@ export function ResearchMap({
           <div className="text-white text-xs text-center mb-2 font-medium">
             Zoom: {Math.round(zoomLevel * 100)}%
           </div>
-          
+
           {/* Zoom Slider */}
           <Slider
             value={[zoomLevel]}
@@ -1382,13 +1475,13 @@ export function ResearchMap({
             step={0.1}
             className="w-full [&_[role=slider]]:bg-white [&_[role=slider]]:border-gray-300"
           />
-          
+
           {/* Zoom Range Labels */}
           <div className="flex justify-between text-white text-xs mt-1 opacity-75">
             <span>0.5x</span>
             <span>5x</span>
           </div>
-          
+
           {/* Reset Button */}
           {(zoomLevel !== 1 || panPosition.x !== 0 || panPosition.y !== 0) && (
             <Button
