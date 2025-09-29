@@ -105,6 +105,10 @@ const SATELLITE_MAPPING = {
     satellite: "sentinel3b",
     parameter: "chl",
   },
+  "ssha-swot": {
+    satellite: "swot",
+    parameter: "ssha",
+  },
 };
 
 // 获取Sentinel-3的fallback文件名
@@ -149,6 +153,19 @@ const getColorForValue = (
       const r = Math.round((normalized - 0.5) * 2 * 255);
       const g = 255;
       const b = 0;
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+  } else if (parameter.includes("ssha") || parameter === "ssha-swot") {
+    // SSHA：深红 -> 黄 -> 蓝紫 (Spectral colormap)
+    if (normalized < 0.5) {
+      const r = Math.round(158 + (255 - 158) * normalized * 2);
+      const g = Math.round(1 + (255 - 1) * normalized * 2);
+      const b = Math.round(66 + (255 - 66) * normalized * 2);
+      return `rgb(${r}, ${g}, ${b})`;
+    } else {
+      const r = Math.round(255 - (255 - 94) * (normalized - 0.5) * 2);
+      const g = Math.round(255 - (255 - 79) * (normalized - 0.5) * 2);
+      const b = Math.round(255 - (255 - 162) * (normalized - 0.5) * 2);
       return `rgb(${r}, ${g}, ${b})`;
     }
   }
@@ -215,6 +232,15 @@ export function InteractiveMap({
       if (parameter === "ssth") {
         // Himawari: 直接使用时间戳构造文件名
         return `${currentTimestamp}.nc`;
+      } else if (parameter === "ssha-swot") {
+        // SWOT: 获取可用的NC文件
+        const ncFiles = await getParameterFiles(parameter, "nc");
+        if (ncFiles && ncFiles.length > 0) {
+          return ncFiles[0].filename;
+        } else {
+          // SWOT fallback filename
+          return "subset_SWOT_L3_LR_SSH_Expert_029_062_20250226T145417_20250226T154543_v2.0.1.nc";
+        }
       } else {
         // Sentinel-3: 获取可用的NC文件
         const ncFiles = await getParameterFiles(parameter, "nc");
@@ -228,6 +254,8 @@ export function InteractiveMap({
       console.warn("Failed to get NC filename:", error);
       if (parameter === "ssth") {
         return `${currentTimestamp}.nc`;
+      } else if (parameter === "ssha-swot") {
+        return "subset_SWOT_L3_LR_SSH_Expert_029_062_20250226T145417_20250226T154543_v2.0.1.nc";
       } else {
         return getSentinel3FallbackFilename(parameter);
       }
