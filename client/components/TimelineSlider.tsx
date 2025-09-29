@@ -168,13 +168,11 @@ export function TimelineSlider({
   // 根据当前模式计算时间轴范围
   const getTimeRange = () => {
     if (timeRange.granularity === "day") {
-      // Day 模式：显示当天的24小时（00:00-23:59 UTC）
-      const today = new Date();
-      const dayStart = new Date(today);
-      dayStart.setUTCHours(0, 0, 0, 0);
-      const dayEnd = new Date(dayStart);
-      dayEnd.setUTCHours(23, 59, 59, 999);
-      return { start: dayStart, end: dayEnd };
+      // Day 模式：显示24小时前到现在（不是未来的时间）
+      const now = new Date();
+      const dayStart = new Date(now);
+      dayStart.setTime(dayStart.getTime() - 24 * 60 * 60 * 1000); // 24小时前
+      return { start: dayStart, end: now };
     } else if (timeRange.granularity === "week") {
       // Week 模式：基于当前时间显示7天范围（UTC）
       const today = new Date();
@@ -249,15 +247,14 @@ export function TimelineSlider({
           granularity: "all",
         });
       } else if (timeRange.granularity === "day") {
-        // day 模式：基于当前滑动位置显示当天24小时
-        const dayStart = new Date(currentTime);
-        dayStart.setUTCHours(0, 0, 0, 0);
-        const dayEnd = new Date(dayStart);
-        dayEnd.setUTCHours(23, 59, 59, 999);
+        // day 模式：基于当前滑动位置显示24小时前到现在
+        const now = new Date();
+        const dayStart = new Date(now);
+        dayStart.setTime(dayStart.getTime() - 24 * 60 * 60 * 1000); // 24小时前
 
         onChange({
           start: dayStart,
-          end: currentTime, // 使用当前滑动位置时间，而不是固定的23:59
+          end: currentTime, // 使用当前滑动位置时间
           granularity: "day",
         });
       } else if (timeRange.granularity === "week") {
@@ -288,15 +285,14 @@ export function TimelineSlider({
         granularity: "all",
       });
     } else if (granularity === "day") {
-      // day 模式：基于当前滑动位置显示当天24小时数据
-      const dayStart = new Date(currentTime);
-      dayStart.setUTCHours(0, 0, 0, 0);
-      const dayEnd = new Date(dayStart);
-      dayEnd.setUTCHours(23, 59, 59, 999);
+      // day 模式：显示24小时前到现在
+      const now = new Date();
+      const dayStart = new Date(now);
+      dayStart.setTime(dayStart.getTime() - 24 * 60 * 60 * 1000); // 24小时前
 
       onChange({
         start: dayStart,
-        end: currentTime, // 使用当前滑动位置时间
+        end: now, // 使用当前时间
         granularity: "day",
       });
     } else if (granularity === "week") {
@@ -336,27 +332,27 @@ export function TimelineSlider({
           timeZone: "UTC",
         });
       case "week":
-        return `Week of ${currentTime.toLocaleDateString("en-US", {
-          month: "short",
+        // Week 模式：显示当前时间点的精确时间
+        return currentTime.toLocaleString("en-US", {
+          weekday: "long",
+          month: "long",
           day: "numeric",
           year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
           timeZone: "UTC",
-        })}`;
+        });
       case "all":
-        // 显示所有数据的实际时间范围
-        const startDate = fixedStartDate.toLocaleDateString("en-US", {
-          month: "short",
+        // All 模式：显示当前时间点的精确时间
+        return currentTime.toLocaleString("en-US", {
+          weekday: "long",
+          month: "long",
           day: "numeric",
           year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
           timeZone: "UTC",
         });
-        const endDate = fixedEndDate.toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-          timeZone: "UTC",
-        });
-        return `All Data (${startDate} - ${endDate})`;
       default:
         return currentTime.toLocaleDateString();
     }
@@ -446,13 +442,38 @@ export function TimelineSlider({
               const markerTime = new Date(
                 timeRange_actual.start.getTime() + (totalDuration * i) / 6
               );
-              const utcTime = markerTime.toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-                timeZone: "UTC",
-              });
+              
+              // 根据模式显示不同的时间格式
+              let utcTime;
+              if (timeRange.granularity === "day") {
+                // Day 模式：显示小时和分钟
+                utcTime = markerTime.toLocaleString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  timeZone: "UTC",
+                });
+              } else if (timeRange.granularity === "week") {
+                // Week 模式：显示日期和时间
+                utcTime = markerTime.toLocaleString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  timeZone: "UTC",
+                });
+              } else {
+                // All 模式：显示日期和时间
+                utcTime = markerTime.toLocaleString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  timeZone: "UTC",
+                });
+              }
+              
               return <span key={i}>{utcTime}</span>;
             })}
           </div>

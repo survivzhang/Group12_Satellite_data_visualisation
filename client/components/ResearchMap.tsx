@@ -122,6 +122,22 @@ function extractTimeFromSwotFilename(filename: string): Date | null {
   return null;
 }
 
+function extractTimeFromHimawariFilename(filename: string): Date | null {
+  // Himawari 文件名格式: YYYYMMDDHHMMSS.png
+  const match = filename.match(/(\d{8})(\d{6})\.png$/);
+  if (match) {
+    const [, dateStr, timeStr] = match;
+    const year = parseInt(dateStr.substring(0, 4));
+    const month = parseInt(dateStr.substring(4, 6)) - 1; // JavaScript months are 0-based
+    const day = parseInt(dateStr.substring(6, 8));
+    const hour = parseInt(timeStr.substring(0, 2));
+    const minute = parseInt(timeStr.substring(2, 4));
+    const second = parseInt(timeStr.substring(4, 6));
+    return new Date(Date.UTC(year, month, day, hour, minute, second));
+  }
+  return null;
+}
+
 // 辅助函数：获取参数值的占位符（仅作为fallback）
 const getPlaceholderValue = (param: string, type: "min" | "max"): string => {
   switch (param) {
@@ -257,10 +273,17 @@ export function ResearchMap({
 
   const currentTimestamp = useMemo(() => {
     if (!satelliteMapping) return null;
-    if (timeRange.granularity === "all") return null;
 
-    const utcDate = new Date(timeRange.start.getTime());
-    utcDate.setUTCMinutes(0, 0, 0);
+    // 对于所有模式，都使用 timeRange.end 作为当前时间点
+    // 因为 TimelineSlider 将变化的时间放在 end 字段中
+    const targetTime = timeRange.end;
+    const utcDate = new Date(targetTime.getTime());
+
+    // 对于 Himawari，需要将分钟和秒设置为0（因为文件名格式是 YYYYMMDDHH0000）
+    // 对于其他卫星，保持精确时间
+    if (parameter === "ssth") {
+      utcDate.setUTCMinutes(0, 0, 0);
+    }
 
     if (parameter === "ssth") {
       const year = utcDate.getUTCFullYear();
@@ -471,11 +494,35 @@ export function ResearchMap({
 
   // 通用文件查找函数：根据时间查找最合适的文件
   const findBestFileForTime = (files: any[], selectedTime: Date) => {
+    console.log(`findBestFileForTime called for ${parameter}:`, {
+      selectedTime: selectedTime.toISOString(),
+      granularity: timeRange.granularity,
+      filesCount: files.length,
+    });
+
     if (parameter === "ssth") {
-      // Himawari 文件查找 - 查找包含时间戳的文件
-      return files.find(
-        (file) => file.filename && file.filename.startsWith(currentTimestamp)
-      );
+      // Himawari 文件查找 - 寻找选中时间点之前最近的那张图
+      let bestFile = null;
+      let bestTimeDiff = Infinity;
+
+      for (const file of files) {
+        const fileTime = extractTimeFromHimawariFilename(file.filename);
+        if (fileTime && fileTime.getTime() <= selectedTime.getTime()) {
+          const timeDiff = selectedTime.getTime() - fileTime.getTime();
+          if (timeDiff < bestTimeDiff) {
+            bestTimeDiff = timeDiff;
+            bestFile = file;
+          }
+        }
+      }
+
+      console.log(`Himawari file search result:`, {
+        bestFile: bestFile?.filename,
+        bestTimeDiff: bestTimeDiff,
+        selectedTime: selectedTime.toISOString(),
+      });
+
+      return bestFile;
     } else {
       // Sentinel-3 文件查找 - 寻找选中时间点之前最近的那张图
       let bestFile = null;
@@ -491,21 +538,31 @@ export function ResearchMap({
           }
         }
       }
+
+      console.log(`Sentinel-3 file search result:`, {
+        bestFile: bestFile?.filename,
+        bestTimeDiff: bestTimeDiff,
+        selectedTime: selectedTime.toISOString(),
+      });
+
       return bestFile;
     }
   };
 
   useEffect(() => {
     if (satelliteMapping && availableFiles.length > 0) {
-      console.log("All mode - timeRange changed:", {
-        start: timeRange.start,
-        end: timeRange.end,
+      console.log("Image loading effect triggered:", {
+        parameter,
         granularity: timeRange.granularity,
+        start: timeRange.start.toISOString(),
+        end: timeRange.end.toISOString(),
+        currentTimestamp,
+        availableFilesCount: availableFiles.length,
       });
       let targetFile: any = null;
 
       // 使用通用文件查找函数
-      targetFile = findBestFileForTime(availableFiles, timeRange.start);
+      targetFile = findBestFileForTime(availableFiles, timeRange.end);
 
       console.log(`Looking for file with timestamp: ${currentTimestamp}`);
       console.log(
@@ -619,6 +676,7 @@ export function ResearchMap({
     availableFiles,
     parameter,
     imageUrl,
+    timeRange.start,
     timeRange.end,
     timeRange.granularity,
   ]);
