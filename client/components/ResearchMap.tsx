@@ -230,15 +230,23 @@ export function ResearchMap({
   const [viewMode, setViewMode] = useState<"static" | "interactive" | "canvas">(
     "static"
   );
-  
+
   // Zoom functionality state
   const [zoomLevel, setZoomLevel] = useState(1);
   const [panPosition, setPanPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [imageContainer, setImageContainer] = useState<HTMLDivElement | null>(null);
-  const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
-  const [containerDimensions, setContainerDimensions] = useState({ width: 0, height: 0 });
+  const [imageContainer, setImageContainer] = useState<HTMLDivElement | null>(
+    null
+  );
+  const [imageDimensions, setImageDimensions] = useState({
+    width: 0,
+    height: 0,
+  });
+  const [containerDimensions, setContainerDimensions] = useState({
+    width: 0,
+    height: 0,
+  });
   const [baseScale, setBaseScale] = useState(1);
 
   const dataStore = !getParameterFiles ? useDataStore() : null;
@@ -635,40 +643,51 @@ export function ResearchMap({
 
   // Calculate base scale when image dimensions or container dimensions change
   useEffect(() => {
-    if (imageDimensions.width && imageDimensions.height && containerDimensions.width && containerDimensions.height) {
+    if (
+      imageDimensions.width &&
+      imageDimensions.height &&
+      containerDimensions.width &&
+      containerDimensions.height
+    ) {
       const scaleX = containerDimensions.width / imageDimensions.width;
       const scaleY = containerDimensions.height / imageDimensions.height;
       const newBaseScale = Math.min(scaleX, scaleY); // fit inside container
-      
+
       setBaseScale(newBaseScale);
-      
+
       // Reset pan position when base scale changes (e.g., when entering/leaving fullscreen)
       setPanPosition({ x: 0, y: 0 });
     }
   }, [imageDimensions, containerDimensions]);
 
   // Zoom handlers with proper origin point and boundaries
-  const constrainPan = (x: number, y: number, zoom: number, containerWidth: number, containerHeight: number) => {
+  const constrainPan = (
+    x: number,
+    y: number,
+    zoom: number,
+    containerWidth: number,
+    containerHeight: number
+  ) => {
     if (zoom <= 1) return { x: 0, y: 0 };
-    
+
     // Calculate the actual displayed size using baseScale * zoom
     const displayScale = baseScale * zoom;
     const displayedWidth = imageDimensions.width * displayScale;
     const displayedHeight = imageDimensions.height * displayScale;
-    
+
     // Calculate maximum pan distances to keep image in view
     const maxPanX = Math.max(0, (displayedWidth - containerWidth) / 2);
     const maxPanY = Math.max(0, (displayedHeight - containerHeight) / 2);
-    
+
     return {
       x: Math.max(-maxPanX, Math.min(maxPanX, x)),
-      y: Math.max(-maxPanY, Math.min(maxPanY, y))
+      y: Math.max(-maxPanY, Math.min(maxPanY, y)),
     };
   };
 
   const handleZoomChange = (value: number[]) => {
     const newZoom = value[0];
-    
+
     if (!imageContainer) {
       setZoomLevel(newZoom);
       setPanPosition({ x: 0, y: 0 });
@@ -678,38 +697,54 @@ export function ResearchMap({
     const containerRect = imageContainer.getBoundingClientRect();
     const containerCenterX = containerRect.width / 2;
     const containerCenterY = containerRect.height / 2;
-    
+
     // Calculate scale factor
     const scaleFactor = newZoom / zoomLevel;
-    
+
     // For zoom from slider, always zoom from center
     const newPanX = panPosition.x * scaleFactor;
     const newPanY = panPosition.y * scaleFactor;
-    
+
     // Apply constraints
-    const constrainedPan = constrainPan(newPanX, newPanY, newZoom, containerRect.width, containerRect.height);
-    
+    const constrainedPan = constrainPan(
+      newPanX,
+      newPanY,
+      newZoom,
+      containerRect.width,
+      containerRect.height
+    );
+
     setZoomLevel(newZoom);
     setPanPosition(constrainedPan);
   };
 
-  const handleZoomAtPoint = (clientX: number, clientY: number, newZoom: number) => {
+  const handleZoomAtPoint = (
+    clientX: number,
+    clientY: number,
+    newZoom: number
+  ) => {
     if (!imageContainer) return;
 
     const containerRect = imageContainer.getBoundingClientRect();
     const pointX = clientX - containerRect.left;
     const pointY = clientY - containerRect.top;
-    
+
     // Calculate scale factor
     const scaleFactor = newZoom / zoomLevel;
-    
+
     // Calculate new pan position to zoom towards the point
     const newPanX = pointX - (pointX - panPosition.x) * scaleFactor;
     const newPanY = pointY - (pointY - panPosition.y) * scaleFactor;
-    
+
     // Apply constraints
-    const constrainedPan = constrainPan(newPanX, newPanY, newZoom, containerRect.width, containerRect.height);
-    
+    const constrainedPan = constrainPan(
+      newPanX,
+      newPanY,
+      newZoom,
+      containerRect.width,
+      containerRect.height
+    );
+
     setZoomLevel(newZoom);
     setPanPosition(constrainedPan);
   };
@@ -724,7 +759,7 @@ export function ResearchMap({
     const img = e.currentTarget;
     setImageDimensions({
       width: img.naturalWidth,
-      height: img.naturalHeight
+      height: img.naturalHeight,
     });
   };
 
@@ -732,7 +767,10 @@ export function ResearchMap({
   const handleMouseDown = (e: React.MouseEvent) => {
     if (zoomLevel > 1) {
       setIsDragging(true);
-      setDragStart({ x: e.clientX - panPosition.x, y: e.clientY - panPosition.y });
+      setDragStart({
+        x: e.clientX - panPosition.x,
+        y: e.clientY - panPosition.y,
+      });
     }
   };
 
@@ -743,8 +781,14 @@ export function ResearchMap({
         x: e.clientX - dragStart.x,
         y: e.clientY - dragStart.y,
       };
-      
-      const constrainedPan = constrainPan(newPan.x, newPan.y, zoomLevel, containerRect.width, containerRect.height);
+
+      const constrainedPan = constrainPan(
+        newPan.x,
+        newPan.y,
+        zoomLevel,
+        containerRect.width,
+        containerRect.height
+      );
       setPanPosition(constrainedPan);
     }
   };
@@ -762,7 +806,7 @@ export function ResearchMap({
     e.preventDefault();
     const delta = e.deltaY > 0 ? -0.1 : 0.1;
     const newZoom = Math.max(0.5, Math.min(5, zoomLevel + delta));
-    
+
     if (newZoom !== zoomLevel) {
       handleZoomAtPoint(e.clientX, e.clientY, newZoom);
     }
@@ -819,7 +863,11 @@ export function ResearchMap({
           style={{
             background: `radial-gradient(ellipse at center, #0a1a2e 0%, #16213e 30%, #1e3a8a 70%, #3b82f6 100%), linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #3b82f6 100%)`,
             backgroundBlendMode: "multiply, normal",
-            cursor: isDragging ? 'grabbing' : zoomLevel > 1 ? 'grab' : 'default',
+            cursor: isDragging
+              ? "grabbing"
+              : zoomLevel > 1
+              ? "grab"
+              : "default",
           }}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
@@ -829,8 +877,10 @@ export function ResearchMap({
         >
           <div
             style={{
-              transform: `translate(${panPosition.x}px, ${panPosition.y}px) scale(${baseScale * zoomLevel})`,
-              transition: isDragging ? 'none' : 'transform 0.2s ease-out',
+              transform: `translate(${panPosition.x}px, ${
+                panPosition.y
+              }px) scale(${baseScale * zoomLevel})`,
+              transition: isDragging ? "none" : "transform 0.2s ease-out",
             }}
           >
             {/* Show filtered image if available, otherwise show original */}
@@ -1357,7 +1407,7 @@ export function ResearchMap({
           <div className="text-white text-xs text-center mb-2 font-medium">
             Zoom: {Math.round(zoomLevel * 100)}%
           </div>
-          
+
           {/* Zoom Slider */}
           <Slider
             value={[zoomLevel]}
@@ -1367,13 +1417,13 @@ export function ResearchMap({
             step={0.1}
             className="w-full [&_[role=slider]]:bg-white [&_[role=slider]]:border-gray-300"
           />
-          
+
           {/* Zoom Range Labels */}
           <div className="flex justify-between text-white text-xs mt-1 opacity-75">
             <span>0.5x</span>
             <span>5x</span>
           </div>
-          
+
           {/* Reset Button */}
           {(zoomLevel !== 1 || panPosition.x !== 0 || panPosition.y !== 0) && (
             <Button
