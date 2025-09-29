@@ -29,6 +29,8 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { useDataStore } from "@/hooks/useDataStore";
+import { CanvasInteractiveMap } from "@/components/CanvasInteractiveMap";
+import { InteractiveMap } from "@/components/InteractiveMap";
 
 interface ResearchMapProps {
   parameter: string;
@@ -39,6 +41,19 @@ interface ResearchMapProps {
     paramId: string,
     fileType: "nc" | "png"
   ) => Promise<any[]>;
+  range?: {
+    min: string;
+    max: string;
+    appliedMin: string;
+    appliedMax: string;
+  };
+  onRangeUpdate?: (parameter: string, min: string, max: string) => void;
+  onRangeApply?: (
+    parameter: string,
+    appliedMin: string,
+    appliedMax: string
+  ) => void;
+  onRangeReset?: (parameter: string) => void;
 }
 
 const SATELLITE_MAPPING = {
@@ -75,6 +90,10 @@ export function ResearchMap({
   availableParameters,
   isFullscreen,
   getParameterFiles,
+  range,
+  onRangeUpdate,
+  onRangeApply,
+  onRangeReset,
 }: ResearchMapProps): JSX.Element {
   const [isLoading, setIsLoading] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -742,6 +761,32 @@ export function ResearchMap({
     );
   }
 
+  // Render different components based on view mode
+  if (viewMode === "canvas") {
+    return (
+      <CanvasInteractiveMap
+        parameter={parameter}
+        timeRange={timeRange}
+        availableParameters={availableParameters}
+        isFullscreen={isFullscreen}
+        getParameterFiles={getParameterFiles}
+      />
+    );
+  }
+
+  if (viewMode === "interactive") {
+    return (
+      <InteractiveMap
+        parameter={parameter}
+        timeRange={timeRange}
+        availableParameters={availableParameters}
+        isFullscreen={isFullscreen}
+        getParameterFiles={getParameterFiles}
+      />
+    );
+  }
+
+  // Default static view
   return (
     <div
       className={`relative ${

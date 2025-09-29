@@ -23,14 +23,8 @@ const TileLayer = dynamic(
   () => import("react-leaflet").then((mod) => mod.TileLayer),
   { ssr: false }
 );
-const useMapEvents = dynamic(
-  () => import("react-leaflet").then((mod) => mod.useMapEvents),
-  { ssr: false }
-);
-const useMap = dynamic(
-  () => import("react-leaflet").then((mod) => mod.useMap),
-  { ssr: false }
-);
+// Hooks cannot be dynamically imported, they need to be imported normally
+// These will be imported inside the component where they're used
 const ImageOverlay = dynamic(
   () => import("react-leaflet").then((mod) => mod.ImageOverlay),
   { ssr: false }
@@ -316,8 +310,11 @@ function CanvasHeatmapOverlay({
 
   // 地图事件监听器 - 用于交互
   function MapEventHandler() {
+    // Import hooks inside the component to avoid SSR issues
+    const { useMapEvents } = require("react-leaflet");
+
     useMapEvents({
-      click: (e) => {
+      click: (e: any) => {
         // 处理点击事件，查找最近的数据点
         if (!ncData) return;
 
