@@ -997,6 +997,12 @@ async def get_filtered_image(
                 # Use Sentinel-3 specific variable lookup
                 sentinel3_api = get_sentinel3_api()
                 data_var = sentinel3_api.find_data_variable(ds, parameter)
+            elif satellite == 'swot':
+                # SWOT uses ssha_filtered as the main variable
+                for var_name in ["ssha_filtered", "ssha"]:
+                    if var_name in ds.data_vars:
+                        data_var = ds[var_name]
+                        break
             else:
                 # Use general variable lookup for other satellites
                 for var_name in ["sea_surface_temperature"]:
@@ -1087,6 +1093,9 @@ async def get_filtered_image(
                 sentinel3_api = get_sentinel3_api()
                 colormap_name = sentinel3_api.get_parameter_colormap(parameter)
                 cmap = getattr(plt.cm, colormap_name, plt.cm.viridis)
+            elif satellite == 'swot':
+                # Use Spectral colormap for SWOT SSHA data
+                cmap = plt.cm.Spectral_r
             else:
                 # Use general colormap for other satellites
                 if parameter == "sst":
@@ -1179,6 +1188,12 @@ async def get_nc_data_for_map(
                 # Use Sentinel-3 specific variable lookup
                 sentinel3_api = get_sentinel3_api()
                 data_var = sentinel3_api.find_data_variable(ds, parameter)
+            elif satellite == 'swot':
+                # SWOT uses ssha_filtered as the main variable
+                for var_name in ["ssha_filtered", "ssha"]:
+                    if var_name in ds.data_vars:
+                        data_var = ds[var_name]
+                        break
             else:
                 # Use general variable lookup for other satellites
                 for var_name in ["sea_surface_temperature"]:
@@ -1372,6 +1387,12 @@ async def get_nc_grid_data_for_heatmap(
                 # Use Sentinel-3 specific variable lookup
                 sentinel3_api = get_sentinel3_api()
                 data_var = sentinel3_api.find_data_variable(ds, parameter)
+            elif satellite == 'swot':
+                # SWOT uses ssha_filtered as the main variable
+                for var_name in ["ssha_filtered", "ssha"]:
+                    if var_name in ds.data_vars:
+                        data_var = ds[var_name]
+                        break
             else:
                 # Use general variable lookup for other satellites
                 for var_name in ["sea_surface_temperature"]:
