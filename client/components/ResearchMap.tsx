@@ -5,6 +5,7 @@ import { Parameter, TimeRange } from "@/types/research";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +26,7 @@ import {
   Info,
   Globe,
   Camera,
+  RotateCcw,
 } from "lucide-react";
 import { useDataStore } from "@/hooks/useDataStore";
 import { InteractiveMap } from "@/components/InteractiveMap";
@@ -227,6 +229,16 @@ export function ResearchMap({
   
   // State for map view mode
   const [viewMode, setViewMode] = useState<"static" | "interactive" | "canvas">("static");
+  
+  // Zoom functionality state
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [panPosition, setPanPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [imageContainer, setImageContainer] = useState<HTMLDivElement | null>(null);
+  const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
+  const [containerDimensions, setContainerDimensions] = useState({ width: 0, height: 0 });
+  const [baseScale, setBaseScale] = useState(1);
 
   // 如果没有传入getParameterFiles，则使用useDataStore（向后兼容）
   const dataStore = !getParameterFiles ? useDataStore() : null;
@@ -582,6 +594,159 @@ export function ResearchMap({
     }
   }, [satelliteMapping, currentTimestamp, availableFiles, parameter, imageUrl]);
 
+  // ResizeObserver to track container dimensions and calculate base scale
+  useEffect(() => {
+    if (!imageContainer) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        setContainerDimensions({ width, height });
+      }
+    });
+
+    resizeObserver.observe(imageContainer);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [imageContainer]);
+
+  // Calculate base scale when image dimensions or container dimensions change
+  useEffect(() => {
+    if (imageDimensions.width && imageDimensions.height && containerDimensions.width && containerDimensions.height) {
+      const scaleX = containerDimensions.width / imageDimensions.width;
+      const scaleY = containerDimensions.height / imageDimensions.height;
+      const newBaseScale = Math.min(scaleX, scaleY); // fit inside container
+      
+      setBaseScale(newBaseScale);
+      
+      // Reset pan position when base scale changes (e.g., when entering/leaving fullscreen)
+      setPanPosition({ x: 0, y: 0 });
+    }
+  }, [imageDimensions, containerDimensions]);
+
+  // Zoom handlers with proper origin point and boundaries
+  const constrainPan = (x: number, y: number, zoom: number, containerWidth: number, containerHeight: number) => {
+    if (zoom <= 1) return { x: 0, y: 0 };
+    
+    // Calculate the actual displayed size using baseScale * zoom
+    const displayScale = baseScale * zoom;
+    const displayedWidth = imageDimensions.width * displayScale;
+    const displayedHeight = imageDimensions.height * displayScale;
+    
+    // Calculate maximum pan distances to keep image in view
+    const maxPanX = Math.max(0, (displayedWidth - containerWidth) / 2);
+    const maxPanY = Math.max(0, (displayedHeight - containerHeight) / 2);
+    
+    return {
+      x: Math.max(-maxPanX, Math.min(maxPanX, x)),
+      y: Math.max(-maxPanY, Math.min(maxPanY, y))
+    };
+  };
+
+  const handleZoomChange = (value: number[]) => {
+    const newZoom = value[0];
+    
+    if (!imageContainer) {
+      setZoomLevel(newZoom);
+      setPanPosition({ x: 0, y: 0 });
+      return;
+    }
+
+    const containerRect = imageContainer.getBoundingClientRect();
+    const containerCenterX = containerRect.width / 2;
+    const containerCenterY = containerRect.height / 2;
+    
+    // Calculate scale factor
+    const scaleFactor = newZoom / zoomLevel;
+    
+    // For zoom from slider, always zoom from center
+    const newPanX = panPosition.x * scaleFactor;
+    const newPanY = panPosition.y * scaleFactor;
+    
+    // Apply constraints
+    const constrainedPan = constrainPan(newPanX, newPanY, newZoom, containerRect.width, containerRect.height);
+    
+    setZoomLevel(newZoom);
+    setPanPosition(constrainedPan);
+  };
+
+  const handleZoomAtPoint = (clientX: number, clientY: number, newZoom: number) => {
+    if (!imageContainer) return;
+
+    const containerRect = imageContainer.getBoundingClientRect();
+    const pointX = clientX - containerRect.left;
+    const pointY = clientY - containerRect.top;
+    
+    // Calculate scale factor
+    const scaleFactor = newZoom / zoomLevel;
+    
+    // Calculate new pan position to zoom towards the point
+    const newPanX = pointX - (pointX - panPosition.x) * scaleFactor;
+    const newPanY = pointY - (pointY - panPosition.y) * scaleFactor;
+    
+    // Apply constraints
+    const constrainedPan = constrainPan(newPanX, newPanY, newZoom, containerRect.width, containerRect.height);
+    
+    setZoomLevel(newZoom);
+    setPanPosition(constrainedPan);
+  };
+
+  const handleReset = () => {
+    setZoomLevel(1);
+    setPanPosition({ x: 0, y: 0 });
+  };
+
+  // Handle image load to get dimensions
+  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    setImageDimensions({
+      width: img.naturalWidth,
+      height: img.naturalHeight
+    });
+  };
+
+  // Mouse handlers for panning
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (zoomLevel > 1) {
+      setIsDragging(true);
+      setDragStart({ x: e.clientX - panPosition.x, y: e.clientY - panPosition.y });
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDragging && zoomLevel > 1 && imageContainer) {
+      const containerRect = imageContainer.getBoundingClientRect();
+      const newPan = {
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y,
+      };
+      
+      const constrainedPan = constrainPan(newPan.x, newPan.y, zoomLevel, containerRect.width, containerRect.height);
+      setPanPosition(constrainedPan);
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleMouseLeave = () => {
+    setIsDragging(false);
+  };
+
+  // Wheel zoom handler
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    const newZoom = Math.max(0.5, Math.min(5, zoomLevel + delta));
+    
+    if (newZoom !== zoomLevel) {
+      handleZoomAtPoint(e.clientX, e.clientY, newZoom);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="h-96 bg-slate-100 rounded-lg flex items-center justify-center">
@@ -691,26 +856,36 @@ export function ResearchMap({
     >
       {(imageUrl || filteredImageUrl) && satelliteMapping ? (
         <div
-          className="absolute inset-0 w-full h-full flex items-center justify-center"
+          ref={setImageContainer}
+          className="absolute inset-0 w-full h-full flex items-center justify-center overflow-hidden cursor-grab"
           style={{
             background: `
             radial-gradient(ellipse at center, #0a1a2e 0%, #16213e 30%, #1e3a8a 70%, #3b82f6 100%),
             linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #3b82f6 100%)
           `,
             backgroundBlendMode: "multiply, normal",
+            cursor: isDragging ? 'grabbing' : zoomLevel > 1 ? 'grab' : 'default',
           }}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
+          onWheel={handleWheel}
         >
-          <div className="relative w-full h-full">
+          <div
+            style={{
+              transform: `translate(${panPosition.x}px, ${panPosition.y}px) scale(${baseScale * zoomLevel})`,
+              transition: isDragging ? 'none' : 'transform 0.2s ease-out',
+            }}
+          >
             {/* Show filtered image if available, otherwise show original */}
             <img
               src={filteredImageUrl || imageUrl || undefined}
               alt={`${currentParam?.name} visualization`}
-              className={`${
-                isFullscreen ? "max-w-full max-h-full" : "w-full h-full"
-              } object-contain rounded-lg`}
-              style={{
-                filter: "contrast(1.1) brightness(1.1)",
-              }}
+              className="max-w-none rounded-lg"
+              style={{ filter: "contrast(1.1) brightness(1.1)" }}
+              draggable={false}
+              onLoad={handleImageLoad}
             />
 
             {/* Loading indicator for filtered image generation */}
@@ -733,7 +908,7 @@ export function ResearchMap({
             )}
           </div>
           {/* Overlay for better text readability */}
-          <div className="absolute inset-0 bg-black/10"></div>
+          <div className="absolute inset-0 bg-black/10 pointer-events-none"></div>
         </div>
       ) : (
         <div className="h-full flex items-center justify-center">
@@ -1190,8 +1365,48 @@ export function ResearchMap({
         </Dialog>
       </div>
 
+      {/* Zoom Controls */}
+      <div className="absolute top-4 right-4 flex flex-col gap-3 z-10">
+        <div className="bg-gray-900/90 backdrop-blur border border-gray-700 rounded-lg p-3 min-w-[160px]">
+          {/* Zoom Level Display */}
+          <div className="text-white text-xs text-center mb-2 font-medium">
+            Zoom: {Math.round(zoomLevel * 100)}%
+          </div>
+          
+          {/* Zoom Slider */}
+          <Slider
+            value={[zoomLevel]}
+            onValueChange={handleZoomChange}
+            min={0.5}
+            max={5}
+            step={0.1}
+            className="w-full [&_[role=slider]]:bg-white [&_[role=slider]]:border-gray-300"
+          />
+          
+          {/* Zoom Range Labels */}
+          <div className="flex justify-between text-white text-xs mt-1 opacity-75">
+            <span>0.5x</span>
+            <span>5x</span>
+          </div>
+          
+          {/* Reset Button */}
+          {(zoomLevel !== 1 || panPosition.x !== 0 || panPosition.y !== 0) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleReset}
+              className="w-full mt-2 h-7 text-xs bg-gray-800 border-gray-600 text-white hover:bg-gray-700 hover:text-white hover:border-gray-500"
+              title="Reset Zoom and Position"
+            >
+              <RotateCcw className="h-3 w-3 mr-1" />
+              Reset
+            </Button>
+          )}
+        </div>
+      </div>
+
       {/* Live indicator */}
-      <div className="absolute top-4 right-16">
+      <div className="absolute top-4 right-20">
         <Badge className="bg-green-500/20 backdrop-blur text-green-100 border-green-400/30 animate-pulse">
           <Zap className="h-3 w-3 mr-1" />
           Live
