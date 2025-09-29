@@ -174,11 +174,13 @@ export function TimelineSlider({
       dayStart.setTime(dayStart.getTime() - 24 * 60 * 60 * 1000); // 24小时前
       return { start: dayStart, end: now };
     } else if (timeRange.granularity === "week") {
-      // Week 模式：基于当前时间显示7天范围（UTC）
+      // Week 模式：显示当前日期前7天（比如今天是9月29日，就显示9月22日到9月29日）
       const today = new Date();
       const weekEnd = new Date(today);
+      weekEnd.setUTCHours(23, 59, 59, 999); // 设置为今天的结束时间
       const weekStart = new Date(weekEnd);
-      weekStart.setDate(weekStart.getDate() - 6); // 改为6天，包含今天
+      weekStart.setDate(weekStart.getDate() - 6); // 前6天，包含今天共7天
+      weekStart.setUTCHours(0, 0, 0, 0); // 设置为开始日期的开始时间
       return { start: weekStart, end: weekEnd };
     } else {
       // All 模式：显示完整时间范围
@@ -258,14 +260,22 @@ export function TimelineSlider({
           granularity: "day",
         });
       } else if (timeRange.granularity === "week") {
-        // week 模式：基于当前滑动位置显示7天范围
-        const weekEnd = new Date(currentTime);
+        // week 模式：始终显示当前日期前7天，滑动位置决定查看哪一天的数据
+        const today = new Date();
+        const weekEnd = new Date(today);
+        weekEnd.setUTCHours(23, 59, 59, 999); // 设置为今天的结束时间
         const weekStart = new Date(weekEnd);
-        weekStart.setDate(weekStart.getDate() - 6); // 当前时间往前推6天，包含当前时间
+        weekStart.setDate(weekStart.getDate() - 6); // 前6天，包含今天共7天
+        weekStart.setUTCHours(0, 0, 0, 0); // 设置为开始日期的开始时间
+
+        // 根据滑动位置计算当前查看的具体时间点
+        const currentViewTime = new Date(
+          weekStart.getTime() + (totalDuration * currentPosition) / 1000
+        );
 
         onChange({
           start: weekStart,
-          end: weekEnd,
+          end: currentViewTime, // 使用计算出的查看时间
           granularity: "week",
         });
       }
@@ -296,25 +306,43 @@ export function TimelineSlider({
         granularity: "day",
       });
     } else if (granularity === "week") {
-      // week 模式：基于当前滑动位置显示7天范围
-      const weekEnd = new Date(currentTime);
+      // week 模式：显示当前日期前7天
+      const today = new Date();
+      const weekEnd = new Date(today);
+      weekEnd.setUTCHours(23, 59, 59, 999); // 设置为今天的结束时间
       const weekStart = new Date(weekEnd);
-      weekStart.setDate(weekStart.getDate() - 6); // 当前时间往前推6天，包含当前时间
+      weekStart.setDate(weekStart.getDate() - 6); // 前6天，包含今天共7天
+      weekStart.setUTCHours(0, 0, 0, 0); // 设置为开始日期的开始时间
 
       onChange({
         start: weekStart,
-        end: currentTime, // 使用当前滑动位置时间
+        end: weekEnd, // 使用当前日期
         granularity: "week",
       });
     }
   };
 
   const getCurrentDateTime = () => {
-    const currentTime = new Date(
-      timeRange_actual.start.getTime() +
-        (totalDuration * currentPosition) / 1000
-    );
-    return currentTime;
+    if (timeRange.granularity === "week") {
+      // Week 模式：基于当前日期前7天范围计算当前查看时间
+      const today = new Date();
+      const weekEnd = new Date(today);
+      weekEnd.setUTCHours(23, 59, 59, 999);
+      const weekStart = new Date(weekEnd);
+      weekStart.setDate(weekStart.getDate() - 6);
+      weekStart.setUTCHours(0, 0, 0, 0);
+
+      return new Date(
+        weekStart.getTime() + (totalDuration * currentPosition) / 1000
+      );
+    } else {
+      // 其他模式使用原来的逻辑
+      const currentTime = new Date(
+        timeRange_actual.start.getTime() +
+          (totalDuration * currentPosition) / 1000
+      );
+      return currentTime;
+    }
   };
 
   const formatDateRange = () => {
@@ -442,7 +470,7 @@ export function TimelineSlider({
               const markerTime = new Date(
                 timeRange_actual.start.getTime() + (totalDuration * i) / 6
               );
-              
+
               // 根据模式显示不同的时间格式
               let utcTime;
               if (timeRange.granularity === "day") {
@@ -473,7 +501,7 @@ export function TimelineSlider({
                   timeZone: "UTC",
                 });
               }
-              
+
               return <span key={i}>{utcTime}</span>;
             })}
           </div>
