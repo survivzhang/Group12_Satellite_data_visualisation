@@ -29,8 +29,6 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { useDataStore } from "@/hooks/useDataStore";
-import { InteractiveMap } from "@/components/InteractiveMap";
-import { CanvasInteractiveMap } from "@/components/CanvasInteractiveMap";
 
 interface ResearchMapProps {
   parameter: string;
@@ -41,19 +39,6 @@ interface ResearchMapProps {
     paramId: string,
     fileType: "nc" | "png"
   ) => Promise<any[]>;
-  range?: {
-    min: string;
-    max: string;
-    appliedMin: string;
-    appliedMax: string;
-  };
-  onRangeUpdate?: (parameter: string, min: string, max: string) => void;
-  onRangeApply?: (
-    parameter: string,
-    appliedMin: string,
-    appliedMax: string
-  ) => void;
-  onRangeReset?: (parameter: string) => void;
 }
 
 // 卫星参数映射 - 更新为统一数据结构
@@ -85,90 +70,15 @@ const SATELLITE_MAPPING = {
   },
 };
 
-// 辅助函数：获取参数值的占位符（仅作为fallback）
-const getPlaceholderValue = (param: string, type: "min" | "max"): string => {
-  switch (param) {
-    case "ssth":
-      return type === "min" ? "290" : "310"; // SST in Kelvin
-    case "sst-s3a":
-    case "sst-s3b":
-      return type === "min" ? "15" : "35"; // SST in Celsius
-    case "chl-s3a":
-    case "chl-s3b":
-      return type === "min" ? "0.01" : "10"; // Chl in mg/m³
-    default:
-      return type === "min" ? "0" : "100";
-  }
-};
-
-// 辅助函数：获取实际的数据范围（优先使用API数据）
-const getDataRange = (
-  param: string,
-  type: "min" | "max",
-  dataStats: any
-): string => {
-  if (dataStats && dataStats[type] !== undefined) {
-    return dataStats[type].toFixed(2);
-  }
-  return getPlaceholderValue(param, type);
-};
-
-// 辅助函数：获取参数的典型范围
-const getTypicalRange = (param: string): string => {
-  switch (param) {
-    case "ssth":
-      return "290-310 K (Sea Surface Temperature)";
-    case "sst-s3a":
-    case "sst-s3b":
-      return "15-35°C (Sea Surface Temperature)";
-    case "chl-s3a":
-    case "chl-s3b":
-      return "0.01-10 mg/m³ (Chlorophyll-a)";
-    default:
-      return "Check parameter documentation";
-  }
-};
-
-// 辅助函数：获取Sentinel-3的fallback文件名
-const getSentinel3FallbackFilename = (param: string): string => {
-  switch (param) {
-    case "sst-s3a":
-      return "20250923_211031.nc"; // Sentinel-3A SST NC文件
-    case "sst-s3b":
-      return "20250923_211028.nc"; // Sentinel-3B SST NC文件
-    case "chl-s3a":
-      return "20250923_211036.nc"; // Sentinel-3A Chl NC文件
-    case "chl-s3b":
-      return "20250923_211040.nc"; // Sentinel-3B Chl NC文件
-    default:
-      return "20250923_211031.nc"; // 默认SST文件
-  }
-};
-
 export function ResearchMap({
   parameter,
   timeRange,
   availableParameters,
   isFullscreen,
   getParameterFiles,
-  range,
-  onRangeUpdate,
-  onRangeApply,
-  onRangeReset,
 }: ResearchMapProps): JSX.Element {
-  // Use props for range state, fallback to local state for backward compatibility
-  const parameterMin = range?.min || "";
-  const parameterMax = range?.max || "";
-  const appliedMin = range?.appliedMin || "";
-  const appliedMax = range?.appliedMax || "";
-
-  // Local state for dialog inputs (temporary values before applying)
-  const [tempMin, setTempMin] = useState<string>("");
-  const [tempMax, setTempMax] = useState<string>("");
-  const [isRangeDialogOpen, setIsRangeDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [filteredImageUrl, setFilteredImageUrl] = useState<string | null>(null);
   const [imageError, setImageError] = useState(false);
   const [availableFiles, setAvailableFiles] = useState<any[]>([]);
   const [dataStats, setDataStats] = useState<{
@@ -180,6 +90,14 @@ export function ResearchMap({
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [isGeneratingFilteredImage, setIsGeneratingFilteredImage] =
     useState(false);
+  const [filteredImageUrl, setFilteredImageUrl] = useState<string | null>(null);
+  const [parameterMin, setParameterMin] = useState<string>("");
+  const [parameterMax, setParameterMax] = useState<string>("");
+  const [appliedMin, setAppliedMin] = useState<string>("");
+  const [appliedMax, setAppliedMax] = useState<string>("");
+  const [tempMin, setTempMin] = useState<string>("");
+  const [tempMax, setTempMax] = useState<string>("");
+  const [isRangeDialogOpen, setIsRangeDialogOpen] = useState(false);
 
   // State for current image path display functionality
   const [currentImageInfo, setCurrentImageInfo] = useState<{
@@ -194,7 +112,7 @@ export function ResearchMap({
     "static"
   );
 
-  // Interactive map states (from main branch)
+  // Interactive map states
   const [zoomLevel, setZoomLevel] = useState(1);
   const [panPosition, setPanPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -219,6 +137,15 @@ export function ResearchMap({
   const currentParam = availableParameters.find((p) => p.id === parameter);
   const satelliteMapping =
     SATELLITE_MAPPING[parameter as keyof typeof SATELLITE_MAPPING];
+
+  // Helper function for Sentinel-3 fallback filename
+  const getSentinel3FallbackFilename = (param: string) => {
+    if (param === "sst-s3a") return "sentinel3a_sst.nc";
+    if (param === "sst-s3b") return "sentinel3b_sst.nc";
+    if (param === "chl-s3a") return "sentinel3a_chl.nc";
+    if (param === "chl-s3b") return "sentinel3b_chl.nc";
+    return "data.nc";
+  };
 
   // 获取当前时间戳和文件名
   const currentTimestamp = useMemo(() => {
@@ -693,7 +620,7 @@ export function ResearchMap({
         console.log(`Loading ${parameter} image:`, targetFile.filename);
         console.log(`Image URL: ${pngUrl}`);
 
-        // Check if image exists and update image info
+        // Check if image exists
         const img = new Image();
         img.onload = () => {
           setImageUrl(pngUrl);
@@ -720,7 +647,6 @@ export function ResearchMap({
           setImageError(true);
           setImageUrl(null);
           setIsLoading(false);
-          setCurrentImageInfo(null); // Clear image info on error
         };
         img.src = pngUrl;
       } else {
@@ -730,20 +656,17 @@ export function ResearchMap({
         setImageError(true);
         setImageUrl(null);
         setIsLoading(false);
-        setCurrentImageInfo(null); // Clear image info when no file found
       }
     } else if (satelliteMapping) {
-      // Parameter supported but no available files
+      // 参数支持但没有可用文件
       setIsLoading(false);
       setImageUrl(null);
       setImageError(true);
-      setCurrentImageInfo(null); // Clear image info when no files available
     } else {
-      // Unsupported parameter, show placeholder
+      // 不支持的参数，显示占位符
       setIsLoading(false);
       setImageUrl(null);
       setImageError(false);
-      setCurrentImageInfo(null); // Clear image info for unsupported parameters
     }
   }, [
     satelliteMapping,
@@ -755,7 +678,7 @@ export function ResearchMap({
     timeRange.granularity,
   ]);
 
-  // Interactive map functions (from main branch)
+  // Interactive map functions
   // ResizeObserver to track container dimensions and calculate base scale
   useEffect(() => {
     if (!imageContainer) return;
@@ -953,91 +876,6 @@ export function ResearchMap({
     );
   }
 
-  // 选择要渲染的内容
-  if (viewMode === "interactive") {
-    return (
-      <div
-        className={`relative ${
-          isFullscreen ? "h-full" : "h-96"
-        } rounded-lg overflow-hidden`}
-      >
-        {/* 视图切换按钮 */}
-        <div className="absolute top-4 right-4 z-[1000] flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setViewMode("canvas")}
-            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
-            title="Switch to canvas heatmap view"
-          >
-            <Globe className="h-3 w-3 mr-1" />
-            Canvas
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setViewMode("static")}
-            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
-            title="Switch to static image view"
-          >
-            <Camera className="h-3 w-3 mr-1" />
-            Static
-          </Button>
-        </div>
-
-        <InteractiveMap
-          parameter={parameter}
-          timeRange={timeRange}
-          availableParameters={availableParameters}
-          isFullscreen={isFullscreen}
-          getParameterFiles={getFiles}
-        />
-      </div>
-    );
-  }
-
-  if (viewMode === "canvas") {
-    return (
-      <div
-        className={`relative ${
-          isFullscreen ? "h-full" : "h-96"
-        } rounded-lg overflow-hidden`}
-      >
-        {/* 视图切换按钮 */}
-        <div className="absolute top-4 right-4 z-[1000] flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setViewMode("interactive")}
-            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
-            title="Switch to point interactive view"
-          >
-            <MapPin className="h-3 w-3 mr-1" />
-            Points
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setViewMode("static")}
-            className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30"
-            title="Switch to static image view"
-          >
-            <Camera className="h-3 w-3 mr-1" />
-            Static
-          </Button>
-        </div>
-
-        <CanvasInteractiveMap
-          parameter={parameter}
-          timeRange={timeRange}
-          availableParameters={availableParameters}
-          isFullscreen={isFullscreen}
-          getParameterFiles={getFiles}
-        />
-      </div>
-    );
-  }
-
   return (
     <div
       className={`relative ${
@@ -1051,7 +889,7 @@ export function ResearchMap({
         backgroundBlendMode: "multiply, normal",
       }}
     >
-      {(imageUrl || filteredImageUrl) && satelliteMapping ? (
+      {imageUrl && satelliteMapping ? (
         <div
           ref={setImageContainer}
           className="absolute inset-0 w-full h-full flex items-center justify-center overflow-hidden cursor-grab"
@@ -1132,27 +970,23 @@ export function ResearchMap({
       )}
 
       {/* Parameter info overlay */}
-      <div className="absolute top-4 left-4 flex flex-col gap-2 max-w-xs">
-        <Badge className="bg-white/20 backdrop-blur text-white border-white/30 whitespace-nowrap">
+      <div className="absolute top-4 left-4 flex flex-col gap-2">
+        <Badge className="bg-white/20 backdrop-blur text-white border-white/30">
           <div className="flex items-center gap-1">
             {currentParam?.icon}
-            <span className="truncate">{currentParam?.name}</span>
+            {currentParam?.name}
           </div>
         </Badge>
-        <Badge className="bg-white/20 backdrop-blur text-white border-white/30 whitespace-nowrap">
+        <Badge className="bg-white/20 backdrop-blur text-white border-white/30">
           {imageUrl && satelliteMapping ? (
             <>
               <ImageIcon className="h-3 w-3 mr-1" />
-              <span className="truncate">
-                {satelliteMapping.satellite.toUpperCase()} Image
-              </span>
+              {satelliteMapping.satellite.toUpperCase()} Image
             </>
           ) : (
             <>
               <MapPin className="h-3 w-3 mr-1" />
-              <span className="truncate">
-                {satelliteMapping ? "No data available" : "Coming soon"}
-              </span>
+              {satelliteMapping ? "No data available" : "Coming soon"}
             </>
           )}
         </Badge>
@@ -1177,12 +1011,14 @@ export function ResearchMap({
         {(appliedMin || appliedMax) && (
           <Badge className="bg-blue-500/20 backdrop-blur text-blue-100 border-blue-400/30 whitespace-nowrap">
             <div className="text-xs">
-              Range: {appliedMin || "auto"} - {appliedMax || "auto"}
-              {currentParam?.unit && ` ${currentParam.unit}`}
+              Filtered: {appliedMin || "min"} - {appliedMax || "max"}
             </div>
           </Badge>
         )}
+      </div>
 
+      {/* Bottom left controls section */}
+      <div className="absolute bottom-4 left-4 flex flex-col gap-2">
         {/* Image Path Display Button */}
         {imageUrl && currentImageInfo && (
           <Dialog
@@ -1228,14 +1064,11 @@ export function ResearchMap({
                         size="sm"
                         onClick={async () => {
                           try {
-                            // 尝试通过后端API打开文件管理器
                             const response = await fetch(
                               "http://localhost:8000/api/v1/open-path",
                               {
                                 method: "POST",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                },
+                                headers: { "Content-Type": "application/json" },
                                 body: JSON.stringify({
                                   path: currentImageInfo.localPath,
                                 }),
@@ -1252,10 +1085,7 @@ export function ResearchMap({
                               "Failed to open path via backend:",
                               error
                             );
-
-                            // 后备方案：尝试使用浏览器原生方法
                             try {
-                              // 对于Windows系统，尝试使用file:// protocol
                               const fileUrl = `file:///${currentImageInfo.localPath?.replace(
                                 /\\/g,
                                 "/"
@@ -1266,7 +1096,6 @@ export function ResearchMap({
                                 "Fallback method also failed:",
                                 fallbackError
                               );
-                              // 最后的后备方案：复制路径到剪贴板
                               navigator.clipboard
                                 .writeText(currentImageInfo.localPath || "")
                                 .then(() => {
@@ -1296,7 +1125,6 @@ export function ResearchMap({
                             .writeText(currentImageInfo.localPath || "")
                             .then(() => {
                               console.log("Path copied to clipboard");
-                              // 可以添加toast通知
                             })
                             .catch((err) => {
                               console.error("Failed to copy path:", err);
@@ -1388,152 +1216,100 @@ export function ResearchMap({
               variant="outline"
               size="sm"
               className="bg-white/20 backdrop-blur text-white border-white/30 hover:bg-white/30 w-fit"
+              title="Set parameter value range"
             >
               <Settings className="h-3 w-3 mr-1" />
-              Range
-              {(appliedMin || appliedMax) && (
-                <Badge className="ml-1 bg-green-500/20 text-green-100 border-green-400/30 text-xs">
-                  ✓
-                </Badge>
-              )}
+              Filter Range
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Select {currentParam?.name} Range</DialogTitle>
+              <DialogTitle>Set Parameter Value Range</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              {/* Parameter Range Input */}
-              <div className="space-y-3">
-                <h4 className="text-sm font-medium text-gray-700">
-                  {currentParam?.name} Value Range
-                  {currentParam?.unit && ` (${currentParam.unit})`}
-                </h4>
-
-                {/* Current Applied Range Display */}
-                {(appliedMin || appliedMax) && (
-                  <div className="p-2 bg-blue-50 rounded-md border border-blue-200">
+              {isLoadingStats ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                </div>
+              ) : dataStats ? (
+                <>
+                  <div className="p-3 bg-blue-50 rounded border border-blue-200">
                     <p className="text-xs text-blue-700 font-medium mb-1">
-                      Currently Applied:
+                      Data Statistics:
                     </p>
-                    <p className="text-xs text-blue-600">
-                      {appliedMin || "auto"} - {appliedMax || "auto"}
-                      {currentParam?.unit && ` ${currentParam.unit}`}
-                    </p>
+                    <div className="text-xs text-blue-600 space-y-1">
+                      <p>
+                        Min: {dataStats.min.toFixed(3)} {dataStats.units}
+                      </p>
+                      <p>
+                        Max: {dataStats.max.toFixed(3)} {dataStats.units}
+                      </p>
+                      <p>
+                        Mean: {dataStats.mean.toFixed(3)} {dataStats.units}
+                      </p>
+                    </div>
                   </div>
-                )}
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label htmlFor="param-min" className="text-xs">
-                      Minimum
-                      {dataStats && (
-                        <span className="text-gray-500 ml-1">
-                          (min: {dataStats.min.toFixed(3)})
-                        </span>
-                      )}
-                    </Label>
-                    <Input
-                      id="param-min"
-                      type="number"
-                      step="0.01"
-                      placeholder={
-                        dataStats
-                          ? `${dataStats.min.toFixed(3)}`
-                          : getPlaceholderValue(parameter, "min")
-                      }
-                      value={tempMin}
-                      onChange={(e) => setTempMin(e.target.value)}
-                      min={dataStats ? dataStats.min : undefined}
-                      max={dataStats ? dataStats.max : undefined}
-                      className="text-sm"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="param-max" className="text-xs">
-                      Maximum
-                      {dataStats && (
-                        <span className="text-gray-500 ml-1">
-                          (max: {dataStats.max.toFixed(3)})
-                        </span>
-                      )}
-                    </Label>
-                    <Input
-                      id="param-max"
-                      type="number"
-                      step="0.01"
-                      placeholder={
-                        dataStats
-                          ? `${dataStats.max.toFixed(3)}`
-                          : getPlaceholderValue(parameter, "max")
-                      }
-                      value={tempMax}
-                      onChange={(e) => setTempMax(e.target.value)}
-                      min={dataStats ? dataStats.min : undefined}
-                      max={dataStats ? dataStats.max : undefined}
-                      className="text-sm"
-                    />
-                  </div>
-                </div>
-              </div>
+                  <div className="space-y-3">
+                    <div>
+                      <Label
+                        htmlFor="min-value"
+                        className="text-sm font-medium"
+                      >
+                        Minimum Value ({dataStats.units})
+                      </Label>
+                      <Input
+                        id="min-value"
+                        type="number"
+                        placeholder={dataStats.min.toFixed(3)}
+                        value={tempMin}
+                        onChange={(e) => setTempMin(e.target.value)}
+                        className="mt-1"
+                        step="0.001"
+                      />
+                    </div>
 
-              {/* Data Statistics Display */}
-              {dataStats ? (
-                <div className="p-3 bg-blue-50 rounded-md border border-blue-200">
-                  <p className="text-xs text-blue-700 font-medium mb-2">
-                    Current Image Data Range:
-                  </p>
-                  <div className="text-xs text-blue-600 space-y-1">
-                    <p>
-                      Min: {dataStats.min.toFixed(3)} {dataStats.units}
-                    </p>
-                    <p>
-                      Max: {dataStats.max.toFixed(3)} {dataStats.units}
-                    </p>
-                    <p>
-                      Mean: {dataStats.mean.toFixed(3)} {dataStats.units}
-                    </p>
+                    <div>
+                      <Label
+                        htmlFor="max-value"
+                        className="text-sm font-medium"
+                      >
+                        Maximum Value ({dataStats.units})
+                      </Label>
+                      <Input
+                        id="max-value"
+                        type="number"
+                        placeholder={dataStats.max.toFixed(3)}
+                        value={tempMax}
+                        onChange={(e) => setTempMax(e.target.value)}
+                        className="mt-1"
+                        step="0.001"
+                      />
+                    </div>
                   </div>
-                </div>
-              ) : isLoadingStats ? (
-                <div className="p-3 bg-gray-50 rounded-md">
-                  <p className="text-xs text-gray-600">
-                    Loading data statistics...
-                  </p>
-                </div>
+                </>
               ) : (
-                <div className="p-3 bg-gray-50 rounded-md">
-                  <p className="text-xs text-gray-600 mb-2">
-                    Typical range for {currentParam?.name}:
-                  </p>
-                  <div className="text-xs text-gray-500">
-                    <p>{getTypicalRange(parameter)}</p>
-                  </div>
+                <div className="text-center text-gray-500 py-4">
+                  No statistics available for this parameter
                 </div>
               )}
 
-              <div className="flex justify-between">
-                <div className="flex space-x-2">
-                  {(appliedMin || appliedMax) && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        if (onRangeReset) {
-                          onRangeReset(parameter);
-                        }
-                        setTempMin("");
-                        setTempMax("");
-                        setFilteredImageUrl(null);
-                        console.log("Parameter range reset");
-                      }}
-                      className="text-red-600 border-red-300 hover:bg-red-50"
-                    >
-                      Reset
-                    </Button>
-                  )}
-                </div>
-                <div className="flex space-x-2">
+              <div className="flex justify-between gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setTempMin("");
+                    setTempMax("");
+                    setParameterMin("");
+                    setParameterMax("");
+                    setAppliedMin("");
+                    setAppliedMax("");
+                    setIsRangeDialogOpen(false);
+                  }}
+                >
+                  Clear
+                </Button>
+                <div className="flex gap-2">
                   <Button
                     variant="outline"
                     onClick={() => setIsRangeDialogOpen(false)}
@@ -1542,62 +1318,14 @@ export function ResearchMap({
                   </Button>
                   <Button
                     onClick={() => {
-                      // Apply the parameter range settings
-                      const minValue = tempMin.trim();
-                      const maxValue = tempMax.trim();
-
-                      // Validate range values
-                      if (minValue && maxValue) {
-                        const minNum = parseFloat(minValue);
-                        const maxNum = parseFloat(maxValue);
-
-                        if (minNum >= maxNum) {
-                          alert(
-                            "Minimum value must be less than maximum value"
-                          );
-                          return;
-                        }
-
-                        // Validate against actual data range
-                        if (dataStats) {
-                          if (minNum < dataStats.min) {
-                            alert(
-                              `Minimum value (${minNum}) cannot be less than data minimum (${dataStats.min.toFixed(
-                                3
-                              )})`
-                            );
-                            return;
-                          }
-                          if (maxNum > dataStats.max) {
-                            alert(
-                              `Maximum value (${maxNum}) cannot be greater than data maximum (${dataStats.max.toFixed(
-                                3
-                              )})`
-                            );
-                            return;
-                          }
-                        }
-                      }
-
-                      // Update the global range state
-                      if (onRangeUpdate) {
-                        onRangeUpdate(parameter, minValue, maxValue);
-                      }
-                      if (onRangeApply) {
-                        onRangeApply(parameter, minValue, maxValue);
-                      }
-
-                      console.log("Parameter range applied:", {
-                        parameter: currentParam?.name,
-                        min: minValue,
-                        max: maxValue,
-                      });
-
-                      // The filtered image will be generated automatically by the useEffect
+                      setParameterMin(tempMin);
+                      setParameterMax(tempMax);
+                      setAppliedMin(tempMin);
+                      setAppliedMax(tempMax);
                       setIsRangeDialogOpen(false);
                     }}
                   >
-                    Apply Range
+                    Apply
                   </Button>
                 </div>
               </div>
@@ -1609,12 +1337,10 @@ export function ResearchMap({
       {/* Zoom Controls */}
       <div className="absolute top-4 right-4 flex flex-col gap-3 z-10">
         <div className="bg-white/20 backdrop-blur border border-white/30 rounded-lg p-3 min-w-[160px]">
-          {/* Zoom Level Display */}
           <div className="text-white text-xs text-center mb-2 font-medium">
             Zoom: {Math.round(zoomLevel * 100)}%
           </div>
 
-          {/* Zoom Slider */}
           <Slider
             value={[zoomLevel]}
             onValueChange={handleZoomChange}
@@ -1624,13 +1350,11 @@ export function ResearchMap({
             className="w-full"
           />
 
-          {/* Zoom Range Labels */}
           <div className="flex justify-between text-white text-xs mt-1 opacity-75">
             <span>0.5x</span>
             <span>5x</span>
           </div>
 
-          {/* Reset Button */}
           {(zoomLevel !== 1 || panPosition.x !== 0 || panPosition.y !== 0) && (
             <Button
               variant="outline"
