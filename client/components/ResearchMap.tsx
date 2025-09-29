@@ -27,6 +27,7 @@ import {
   Globe,
   Camera,
   RotateCcw,
+  X,
 } from "lucide-react";
 import { useDataStore } from "@/hooks/useDataStore";
 import { InteractiveMap } from "@/components/InteractiveMap";
@@ -826,6 +827,16 @@ export function ResearchMap({
           >
             <Camera className="h-3 w-3 mr-1" />
             Static
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setViewMode("static")}
+            className="bg-red-500/20 backdrop-blur text-red-100 border-red-400/30 hover:bg-red-500/30"
+            title="Exit Canvas mode and return to initial page"
+          >
+            <X className="h-3 w-3 mr-1" />
+            Exit
           </Button>
         </div>
 
