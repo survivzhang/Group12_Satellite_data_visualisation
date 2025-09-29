@@ -1600,6 +1600,12 @@ async def get_simple_nc_data(
             if satellite in ['sentinel3a', 'sentinel3b']:
                 sentinel3_api = get_sentinel3_api()
                 data_var = sentinel3_api.find_data_variable(ds, parameter)
+            elif satellite == 'swot':
+                # SWOT uses ssha_filtered variable
+                for var_name in ["ssha_filtered", "ssha"]:
+                    if var_name in ds.data_vars:
+                        data_var = ds[var_name]
+                        break
             else:
                 for var_name in ["sea_surface_temperature"]:
                     if var_name in ds.data_vars:
@@ -1615,6 +1621,20 @@ async def get_simple_nc_data(
                     sentinel3_api = get_sentinel3_api()
                     time_coords = ds['time'].values
                     data = sentinel3_api.get_sentinel3_data(data_var, target_time, time_coords)
+                elif satellite == 'swot':
+                    # SWOT time handling - similar to Sentinel-3
+                    if target_time:
+                        from datetime import datetime
+                        try:
+                            target_dt = datetime.fromisoformat(target_time.replace('Z', '+00:00'))
+                            time_coords = ds['time'].values
+                            time_diffs = np.abs([(np.datetime64(t) - np.datetime64(target_dt)).astype('timedelta64[s]').astype(float) for t in time_coords])
+                            closest_time_idx = np.argmin(time_diffs)
+                            data = data_var.values[closest_time_idx]
+                        except Exception as e:
+                            data = find_first_valid_timepoint(data_var)
+                    else:
+                        data = find_first_valid_timepoint(data_var)
                 else:
                     if target_time:
                         from datetime import datetime
@@ -1634,17 +1654,46 @@ async def get_simple_nc_data(
             # Get coordinates
             lon_name = None
             lat_name = None
-            for coord in ["lon", "longitude"]:
-                if coord in ds.coords:
-                    lon_name = coord
-                    break
-            for coord in ["lat", "latitude"]:
-                if coord in ds.coords:
-                    lat_name = coord
-                    break
+            if satellite == 'swot':
+                # SWOT uses different coordinate names - try multiple possibilities
+                for coord in ["longitude", "lon", "x", "lon_center"]:
+                    if coord in ds.coords:
+                        lon_name = coord
+                        break
+                for coord in ["latitude", "lat", "y", "lat_center"]:
+                    if coord in ds.coords:
+                        lat_name = coord
+                        break
+                
+                # If still not found, check data_vars as well
+                if not lon_name:
+                    for coord in ["longitude", "lon", "x", "lon_center"]:
+                        if coord in ds.data_vars:
+                            lon_name = coord
+                            break
+                if not lat_name:
+                    for coord in ["latitude", "lat", "y", "lat_center"]:
+                        if coord in ds.data_vars:
+                            lat_name = coord
+                            break
+            else:
+                for coord in ["lon", "longitude"]:
+                    if coord in ds.coords:
+                        lon_name = coord
+                        break
+                for coord in ["lat", "latitude"]:
+                    if coord in ds.coords:
+                        lat_name = coord
+                        break
             
             if not lon_name or not lat_name:
-                raise HTTPException(status_code=400, detail="Coordinate variables not found")
+                # Debug: print available coordinates
+                available_coords = list(ds.coords.keys())
+                available_vars = list(ds.data_vars.keys())
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Coordinate variables not found. Available coords: {available_coords}, Available vars: {available_vars}"
+                )
             
             lons = ds[lon_name].values
             lats = ds[lat_name].values
@@ -1654,9 +1703,66 @@ async def get_simple_nc_data(
             lons = np.squeeze(lons)
             lats = np.squeeze(lats)
             
-            # 确保数据是2D的
-            if data.ndim != 2:
-                raise HTTPException(status_code=400, detail=f"Expected 2D data, got {data.ndim}D")
+            # Debug: Check for NaN values in coordinates
+            if np.any(np.isnan(lons)) or np.any(np.isnan(lats)):
+                print(f"Warning: Found NaN values in coordinates for {satellite}/{parameter}")
+                print(f"Lon range: {np.nanmin(lons)} to {np.nanmax(lons)}")
+                print(f"Lat range: {np.nanmin(lats)} to {np.nanmax(lats)}")
+                
+                # Filter out NaN coordinates
+                valid_mask = ~(np.isnan(lons) | np.isnan(lats))
+                if np.any(valid_mask):
+                    lons = lons[valid_mask]
+                    lats = lats[valid_mask]
+                    # Also filter data if it's 1D
+                    if data.ndim == 1:
+                        data = data[valid_mask]
+                    elif data.ndim == 2:
+                        # For 2D data, we need to be more careful
+                        # Keep original data but note the issue
+                        print("Warning: 2D data with NaN coordinates - keeping original data structure")
+                else:
+                    raise HTTPException(status_code=400, detail="All coordinate values are NaN")
+            
+            # Handle different data dimensions
+            if satellite == 'swot':
+                # SWOT data might be 1D (point data) or 2D (grid data)
+                if data.ndim == 1:
+                    # 1D data - convert to 2D for Canvas rendering
+                    # Create a simple grid representation
+                    if len(data) != len(lons) or len(data) != len(lats):
+                        raise HTTPException(status_code=400, detail="Data and coordinate length mismatch for SWOT")
+                    
+                    # For 1D SWOT data, we'll create a minimal 2D representation
+                    # This is a simplified approach - in practice you might want more sophisticated gridding
+                    min_lon, max_lon = np.nanmin(lons), np.nanmax(lons)
+                    min_lat, max_lat = np.nanmin(lats), np.nanmax(lats)
+                    
+                    # Create a simple 2D grid (this is a basic approach)
+                    grid_size = min(50, int(np.sqrt(len(data))))  # Limit grid size
+                    lon_grid = np.linspace(min_lon, max_lon, grid_size)
+                    lat_grid = np.linspace(min_lat, max_lat, grid_size)
+                    
+                    # Create 2D data array (simplified - you might want proper interpolation)
+                    data_2d = np.full((grid_size, grid_size), np.nan)
+                    
+                    # Simple nearest neighbor assignment
+                    for i, (lon, lat, val) in enumerate(zip(lons, lats, data)):
+                        if not np.isnan(val):
+                            lon_idx = np.argmin(np.abs(lon_grid - lon))
+                            lat_idx = np.argmin(np.abs(lat_grid - lat))
+                            data_2d[lat_idx, lon_idx] = val
+                    
+                    data = data_2d
+                    lons = lon_grid
+                    lats = lat_grid
+                    
+                elif data.ndim != 2:
+                    raise HTTPException(status_code=400, detail=f"Unsupported SWOT data dimension: {data.ndim}D")
+            else:
+                # For other satellites, ensure data is 2D
+                if data.ndim != 2:
+                    raise HTTPException(status_code=400, detail=f"Expected 2D data, got {data.ndim}D")
             
             # 转换为列表格式，处理NaN
             data_list = []
