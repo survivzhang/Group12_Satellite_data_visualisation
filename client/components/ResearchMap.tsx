@@ -416,7 +416,6 @@ export function ResearchMap({
       setFilteredImageUrl(null);
     }
   }, [appliedMin, appliedMax, availableFiles, currentTimestamp, parameter]);
-
   useEffect(() => {
     if (satelliteMapping && getFiles) {
       getFiles(parameter, "png").then((files) => {
@@ -484,12 +483,16 @@ export function ResearchMap({
         };
         handleStatsRetrieval();
 
-        if (imageUrl === pngUrl) return;
+        // 避免重复加载相同的图片
+        if (imageUrl === pngUrl) {
+          return;
+        }
         setIsLoading(true);
         setImageError(false);
         console.log(`Loading ${parameter} image:`, targetFile.filename);
         console.log(`Image URL: ${pngUrl}`);
 
+        // Check if image exists
         const img = new Image();
         img.onload = () => {
           setImageUrl(pngUrl);
@@ -523,10 +526,12 @@ export function ResearchMap({
         setIsLoading(false);
       }
     } else if (satelliteMapping) {
+      // 参数支持但没有可用文件
       setIsLoading(false);
       setImageUrl(null);
       setImageError(true);
     } else {
+      // 不支持的参数，显示占位符
       setIsLoading(false);
       setImageUrl(null);
       setImageError(false);
@@ -692,6 +697,43 @@ export function ResearchMap({
     }
   };
 
+  // ResizeObserver to track container dimensions and calculate base scale
+  useEffect(() => {
+    if (!imageContainer) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        setContainerDimensions({ width, height });
+      }
+    });
+
+    resizeObserver.observe(imageContainer);
+
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [imageContainer]);
+
+  // Calculate base scale when image dimensions or container dimensions change
+  useEffect(() => {
+    if (
+      imageDimensions.width &&
+      imageDimensions.height &&
+      containerDimensions.width &&
+      containerDimensions.height
+    ) {
+      const scaleX = containerDimensions.width / imageDimensions.width;
+      const scaleY = containerDimensions.height / imageDimensions.height;
+      const newBaseScale = Math.min(scaleX, scaleY); // fit inside container
+
+      setBaseScale(newBaseScale);
+
+      // Reset pan position when base scale changes (e.g., when entering/leaving fullscreen)
+      setPanPosition({ x: 0, y: 0 });
+    }
+  }, [imageDimensions, containerDimensions]);
+
   if (isLoading) {
     return (
       <div className="h-96 bg-slate-100 rounded-lg flex items-center justify-center">
@@ -782,6 +824,7 @@ export function ResearchMap({
         </div>
       )}
 
+      {/* Parameter info overlay */}
       <div className="absolute top-4 left-4 flex flex-col gap-2">
         <Badge className="bg-white/20 backdrop-blur text-white border-white/30">
           <div className="flex items-center gap-1">
@@ -1161,6 +1204,7 @@ export function ResearchMap({
         </div>
       </div>
 
+      {/* Live indicator */}
       <div className="absolute top-4 right-20">
         <Badge className="bg-green-500/20 backdrop-blur text-green-100 border-green-400/30 animate-pulse">
           <Zap className="h-3 w-3 mr-1" />
