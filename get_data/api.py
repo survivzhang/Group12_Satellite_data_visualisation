@@ -1600,6 +1600,12 @@ async def get_simple_nc_data(
             if satellite in ['sentinel3a', 'sentinel3b']:
                 sentinel3_api = get_sentinel3_api()
                 data_var = sentinel3_api.find_data_variable(ds, parameter)
+            elif satellite == 'swot':
+                # SWOT uses ssha_filtered as the main data variable
+                for var_name in ["ssha_filtered", "ssha"]:
+                    if var_name in ds.data_vars:
+                        data_var = ds[var_name]
+                        break
             else:
                 for var_name in ["sea_surface_temperature"]:
                     if var_name in ds.data_vars:
@@ -1615,6 +1621,14 @@ async def get_simple_nc_data(
                     sentinel3_api = get_sentinel3_api()
                     time_coords = ds['time'].values
                     data = sentinel3_api.get_sentinel3_data(data_var, target_time, time_coords)
+                elif satellite == 'swot':
+                    # SWOT data handling - use first time point for now
+                    # SWOT data is typically 2D (lat, lon) but may have time dimension
+                    if 'time' in ds.coords and len(ds['time']) > 1:
+                        # If multiple time points, use the first one
+                        data = data_var.values[0] if len(data_var.shape) > 2 else data_var.values
+                    else:
+                        data = data_var.values
                 else:
                     if target_time:
                         from datetime import datetime

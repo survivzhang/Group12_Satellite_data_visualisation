@@ -20,6 +20,7 @@ import {
   Info,
   Globe,
 } from "lucide-react";
+import { useMapEvents } from "react-leaflet";
 
 // Dynamic import to avoid SSR issues with Leaflet
 const MapContainer = dynamic(
@@ -30,14 +31,8 @@ const TileLayer = dynamic(
   () => import("react-leaflet").then((mod) => mod.TileLayer),
   { ssr: false }
 );
-const useMapEvents = dynamic(
-  () => import("react-leaflet").then((mod) => mod.useMapEvents),
-  { ssr: false }
-);
-const useMap = dynamic(
-  () => import("react-leaflet").then((mod) => mod.useMap),
-  { ssr: false }
-);
+// useMapEvents and useMap are hooks, not components, so they can't be dynamically imported
+// They will be imported directly in the component where they're used
 const ImageOverlay = dynamic(
   () => import("react-leaflet").then((mod) => mod.ImageOverlay),
   { ssr: false }
@@ -96,6 +91,10 @@ const SATELLITE_MAPPING = {
     satellite: "sentinel3b",
     parameter: "chl",
   },
+  "ssha-swot": {
+    satellite: "swot",
+    parameter: "ssha",
+  },
 };
 
 const getSentinel3FallbackFilename = (param: string): string => {
@@ -108,6 +107,8 @@ const getSentinel3FallbackFilename = (param: string): string => {
       return "20250923_211036.nc";
     case "chl-s3b":
       return "20250923_211040.nc";
+    case "ssha-swot":
+      return "subset_SWOT_L3_LR_SSH_Expert_029_062_20250226T145417_20250226T154543_v2.0.1.nc";
     default:
       return "20250923_211031.nc";
   }
@@ -193,6 +194,9 @@ const getColorForValue = (value: number, min: number, max: number, parameter: st
   } else if (parameter.includes("chl")) {
     // 叶绿素使用viridis colormap
     return getViridisColor(value, min, max);
+  } else if (parameter.includes("ssha") || parameter === "ssha-swot") {
+    // 海面高度异常使用viridis colormap（蓝色到黄色）
+    return getViridisColor(value, min, max);
   }
   
   // 默认使用turbo
@@ -221,6 +225,15 @@ function CanvasHeatmapOverlay({
     if (!ncData) return;
 
     console.log("Generating heatmap image...");
+    console.log("NC Data:", {
+      dataShape: ncData.shape,
+      latsLength: ncData.lats.length,
+      lonsLength: ncData.lons.length,
+      minValue: ncData.min_value,
+      maxValue: ncData.max_value,
+      satellite: ncData.satellite,
+      parameter: ncData.parameter
+    });
 
     // 创建临时canvas
     const canvas = document.createElement('canvas');
@@ -230,6 +243,18 @@ function CanvasHeatmapOverlay({
     const { data, lats, lons, min_value, max_value } = ncData;
     const rows = data.length;
     const cols = data[0].length;
+    
+    // 处理2D坐标数组 - 展平为1D数组
+    let flatLats, flatLons;
+    if (Array.isArray(lats[0])) {
+      // 2D坐标数组 - 展平
+      flatLats = lats.flat();
+      flatLons = lons.flat();
+    } else {
+      // 1D坐标数组
+      flatLats = lats;
+      flatLons = lons;
+    }
 
     // 根据数据密度调整Canvas大小
     const density = Math.max(1, Math.min(4, Math.sqrt(rows * cols / 50000))); // 自动调整密度
@@ -281,11 +306,27 @@ function CanvasHeatmapOverlay({
     const dataUrl = canvas.toDataURL('image/png');
     setImageUrl(dataUrl);
 
-    // 计算地理边界
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLon = Math.min(...lons);
-    const maxLon = Math.max(...lons);
+    // 计算地理边界 - 过滤掉 NaN 值
+    const validLats = flatLats.filter(lat => !isNaN(lat) && isFinite(lat));
+    const validLons = flatLons.filter(lon => !isNaN(lon) && isFinite(lon));
+    
+    if (validLats.length === 0 || validLons.length === 0) {
+      console.error("No valid coordinates found for image bounds");
+      setImageBounds(null);
+      return;
+    }
+    
+    const minLat = Math.min(...validLats);
+    const maxLat = Math.max(...validLats);
+    const minLon = Math.min(...validLons);
+    const maxLon = Math.max(...validLons);
+    
+    // 验证边界值
+    if (isNaN(minLat) || isNaN(maxLat) || isNaN(minLon) || isNaN(maxLon)) {
+      console.error("Invalid bounds calculated:", { minLat, maxLat, minLon, maxLon });
+      setImageBounds(null);
+      return;
+    }
     
     setImageBounds([
       [minLat, minLon],
@@ -349,12 +390,14 @@ function CanvasHeatmapOverlay({
   return (
     <>
       <MapEventHandler />
-      <ImageOverlay
-        url={imageUrl}
-        bounds={imageBounds}
-        opacity={0.7}
-        interactive={false}
-      />
+      {imageUrl && imageBounds && (
+        <ImageOverlay
+          url={imageUrl}
+          bounds={imageBounds}
+          opacity={0.7}
+          interactive={false}
+        />
+      )}
     </>
   );
 }
@@ -406,6 +449,14 @@ export function CanvasInteractiveMap({
     try {
       if (parameter === "ssth") {
         return `${currentTimestamp}.nc`;
+      } else if (parameter === "ssha-swot") {
+        // SWOT uses a different filename pattern
+        const ncFiles = await getParameterFiles(parameter, "nc");
+        if (ncFiles && ncFiles.length > 0) {
+          return ncFiles[0].filename;
+        } else {
+          return getSentinel3FallbackFilename(parameter);
+        }
       } else {
         const ncFiles = await getParameterFiles(parameter, "nc");
         if (ncFiles && ncFiles.length > 0) {
@@ -469,22 +520,62 @@ export function CanvasInteractiveMap({
   // 计算地图中心和边界
   const mapCenter = useMemo(() => {
     if (!ncData) return [-22.0, 114.0];
-    const minLat = Math.min(...ncData.lats);
-    const maxLat = Math.max(...ncData.lats);
-    const minLon = Math.min(...ncData.lons);
-    const maxLon = Math.max(...ncData.lons);
+    
+    // 处理2D坐标数组 - 展平为1D数组
+    let flatLats, flatLons;
+    if (Array.isArray(ncData.lats[0])) {
+      flatLats = ncData.lats.flat();
+      flatLons = ncData.lons.flat();
+    } else {
+      flatLats = ncData.lats;
+      flatLons = ncData.lons;
+    }
+    
+    // Filter out NaN values
+    const validLats = flatLats.filter(lat => !isNaN(lat) && isFinite(lat));
+    const validLons = flatLons.filter(lon => !isNaN(lon) && isFinite(lon));
+    
+    if (validLats.length === 0 || validLons.length === 0) {
+      console.warn("No valid coordinates found, using default center");
+      return [-22.0, 114.0];
+    }
+    
+    const minLat = Math.min(...validLats);
+    const maxLat = Math.max(...validLats);
+    const minLon = Math.min(...validLons);
+    const maxLon = Math.max(...validLons);
     const centerLat = (minLat + maxLat) / 2;
     const centerLon = (minLon + maxLon) / 2;
+    
     console.log(`Map center: [${centerLat}, ${centerLon}], bounds: lat(${minLat}, ${maxLat}), lon(${minLon}, ${maxLon})`);
     return [centerLat, centerLon];
   }, [ncData]);
 
   const mapBounds = useMemo(() => {
     if (!ncData) return undefined;
-    const minLat = Math.min(...ncData.lats);
-    const maxLat = Math.max(...ncData.lats);
-    const minLon = Math.min(...ncData.lons);
-    const maxLon = Math.max(...ncData.lons);
+    
+    // 处理2D坐标数组 - 展平为1D数组
+    let flatLats, flatLons;
+    if (Array.isArray(ncData.lats[0])) {
+      flatLats = ncData.lats.flat();
+      flatLons = ncData.lons.flat();
+    } else {
+      flatLats = ncData.lats;
+      flatLons = ncData.lons;
+    }
+    
+    // Filter out NaN values
+    const validLats = flatLats.filter(lat => !isNaN(lat) && isFinite(lat));
+    const validLons = flatLons.filter(lon => !isNaN(lon) && isFinite(lon));
+    
+    if (validLats.length === 0 || validLons.length === 0) {
+      return undefined;
+    }
+    
+    const minLat = Math.min(...validLats);
+    const maxLat = Math.max(...validLats);
+    const minLon = Math.min(...validLons);
+    const maxLon = Math.max(...validLons);
     return [
       [minLat, minLon],
       [maxLat, maxLon],

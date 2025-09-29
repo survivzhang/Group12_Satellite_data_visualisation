@@ -106,6 +106,10 @@ const SATELLITE_MAPPING = {
     satellite: "sentinel3b",
     parameter: "chl",
   },
+  "ssha-swot": {
+    satellite: "swot",
+    parameter: "ssha",
+  },
 };
 
 // 获取Sentinel-3的fallback文件名
@@ -119,6 +123,8 @@ const getSentinel3FallbackFilename = (param: string): string => {
       return "20250923_211036.nc";
     case "chl-s3b":
       return "20250923_211040.nc";
+    case "ssha-swot":
+      return "subset_SWOT_L3_LR_SSH_Expert_029_062_20250226T145417_20250226T154543_v2.0.1.nc";
     default:
       return "20250923_211031.nc";
   }
@@ -136,6 +142,19 @@ const getColorForValue = (value: number, min: number, max: number, parameter: st
     return `rgb(${r}, ${g}, ${b})`;
   } else if (parameter.includes("chl")) {
     // 叶绿素：深蓝 -> 绿色 -> 黄色
+    if (normalized < 0.5) {
+      const r = 0;
+      const g = Math.round(normalized * 2 * 255);
+      const b = Math.round((1 - normalized * 2) * 255);
+      return `rgb(${r}, ${g}, ${b})`;
+    } else {
+      const r = Math.round((normalized - 0.5) * 2 * 255);
+      const g = 255;
+      const b = 0;
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+  } else if (parameter.includes("ssha") || parameter === "ssha-swot") {
+    // 海面高度异常：深蓝 -> 绿色 -> 黄色
     if (normalized < 0.5) {
       const r = 0;
       const g = Math.round(normalized * 2 * 255);
@@ -205,6 +224,14 @@ export function InteractiveMap({
       if (parameter === "ssth") {
         // Himawari: 直接使用时间戳构造文件名
         return `${currentTimestamp}.nc`;
+      } else if (parameter === "ssha-swot") {
+        // SWOT: 获取可用的NC文件
+        const ncFiles = await getParameterFiles(parameter, "nc");
+        if (ncFiles && ncFiles.length > 0) {
+          return ncFiles[0].filename;
+        } else {
+          return getSentinel3FallbackFilename(parameter);
+        }
       } else {
         // Sentinel-3: 获取可用的NC文件
         const ncFiles = await getParameterFiles(parameter, "nc");
@@ -272,6 +299,13 @@ export function InteractiveMap({
     if (!mapData) return [-22.0, 114.0]; // 默认中心点
 
     const { bounds } = mapData;
+    
+    // Check for valid bounds
+    if (isNaN(bounds.north) || isNaN(bounds.south) || isNaN(bounds.east) || isNaN(bounds.west)) {
+      console.warn("Invalid bounds found, using default center");
+      return [-22.0, 114.0];
+    }
+    
     const centerLat = (bounds.north + bounds.south) / 2;
     const centerLon = (bounds.east + bounds.west) / 2;
     return [centerLat, centerLon];
@@ -281,6 +315,12 @@ export function InteractiveMap({
     if (!mapData) return undefined;
 
     const { bounds } = mapData;
+    
+    // Check for valid bounds
+    if (isNaN(bounds.north) || isNaN(bounds.south) || isNaN(bounds.east) || isNaN(bounds.west)) {
+      return undefined;
+    }
+    
     return [
       [bounds.south, bounds.west],
       [bounds.north, bounds.east],
@@ -522,5 +562,4 @@ export function InteractiveMap({
     </div>
   );
 }
-
 
