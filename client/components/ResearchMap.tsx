@@ -678,7 +678,6 @@ export function ResearchMap({
     timeRange.granularity,
   ]);
 
-  // Interactive map functions
   // ResizeObserver to track container dimensions and calculate base scale
   useEffect(() => {
     if (!imageContainer) return;
@@ -707,11 +706,9 @@ export function ResearchMap({
     ) {
       const scaleX = containerDimensions.width / imageDimensions.width;
       const scaleY = containerDimensions.height / imageDimensions.height;
-      const newBaseScale = Math.min(scaleX, scaleY); // fit inside container
+      const newBaseScale = Math.min(scaleX, scaleY);
 
       setBaseScale(newBaseScale);
-
-      // Reset pan position when base scale changes (e.g., when entering/leaving fullscreen)
       setPanPosition({ x: 0, y: 0 });
     }
   }, [imageDimensions, containerDimensions]);
@@ -726,12 +723,10 @@ export function ResearchMap({
   ) => {
     if (zoom <= 1) return { x: 0, y: 0 };
 
-    // Calculate the actual displayed size using baseScale * zoom
     const displayScale = baseScale * zoom;
     const displayedWidth = imageDimensions.width * displayScale;
     const displayedHeight = imageDimensions.height * displayScale;
 
-    // Calculate maximum pan distances to keep image in view
     const maxPanX = Math.max(0, (displayedWidth - containerWidth) / 2);
     const maxPanY = Math.max(0, (displayedHeight - containerHeight) / 2);
 
@@ -751,17 +746,11 @@ export function ResearchMap({
     }
 
     const containerRect = imageContainer.getBoundingClientRect();
-    const containerCenterX = containerRect.width / 2;
-    const containerCenterY = containerRect.height / 2;
-
-    // Calculate scale factor
     const scaleFactor = newZoom / zoomLevel;
 
-    // For zoom from slider, always zoom from center
     const newPanX = panPosition.x * scaleFactor;
     const newPanY = panPosition.y * scaleFactor;
 
-    // Apply constraints
     const constrainedPan = constrainPan(
       newPanX,
       newPanY,
@@ -785,14 +774,11 @@ export function ResearchMap({
     const pointX = clientX - containerRect.left;
     const pointY = clientY - containerRect.top;
 
-    // Calculate scale factor
     const scaleFactor = newZoom / zoomLevel;
 
-    // Calculate new pan position to zoom towards the point
     const newPanX = pointX - (pointX - panPosition.x) * scaleFactor;
     const newPanY = pointY - (pointY - panPosition.y) * scaleFactor;
 
-    // Apply constraints
     const constrainedPan = constrainPan(
       newPanX,
       newPanY,
@@ -810,7 +796,6 @@ export function ResearchMap({
     setPanPosition({ x: 0, y: 0 });
   };
 
-  // Handle image load to get dimensions
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     setImageDimensions({
@@ -819,7 +804,6 @@ export function ResearchMap({
     });
   };
 
-  // Mouse handlers for panning
   const handleMouseDown = (e: React.MouseEvent) => {
     if (zoomLevel > 1) {
       setIsDragging(true);
@@ -857,7 +841,6 @@ export function ResearchMap({
     setIsDragging(false);
   };
 
-  // Wheel zoom handler
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY > 0 ? -0.1 : 0.1;
@@ -928,10 +911,8 @@ export function ResearchMap({
               onLoad={handleImageLoad}
             />
           </div>
-          {/* Overlay for better text readability */}
           <div className="absolute inset-0 bg-black/10 pointer-events-none"></div>
 
-          {/* Loading indicator for filtered image generation */}
           {isGeneratingFilteredImage && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-lg">
               <div className="text-white text-center">
@@ -941,7 +922,6 @@ export function ResearchMap({
             </div>
           )}
 
-          {/* Range indicator */}
           {(appliedMin || appliedMax) && dataStats && (
             <div className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
               Range: {appliedMin || dataStats.min.toFixed(3)} -{" "}
@@ -969,7 +949,6 @@ export function ResearchMap({
         </div>
       )}
 
-      {/* Parameter info overlay */}
       <div className="absolute top-4 left-4 flex flex-col gap-2">
         <Badge className="bg-white/20 backdrop-blur text-white border-white/30">
           <div className="flex items-center gap-1">
@@ -1007,7 +986,6 @@ export function ResearchMap({
           </Badge>
         )}
 
-        {/* Applied Range Display */}
         {(appliedMin || appliedMax) && (
           <Badge className="bg-blue-500/20 backdrop-blur text-blue-100 border-blue-400/30 whitespace-nowrap">
             <div className="text-xs">
@@ -1017,9 +995,7 @@ export function ResearchMap({
         )}
       </div>
 
-      {/* Bottom left controls section */}
       <div className="absolute bottom-4 left-4 flex flex-col gap-2">
-        {/* Image Path Display Button */}
         {imageUrl && currentImageInfo && (
           <Dialog
             open={isImageInfoDialogOpen}
@@ -1185,7 +1161,6 @@ export function ResearchMap({
           </Dialog>
         )}
 
-        {/* View Mode Toggle Buttons */}
         <div className="flex flex-col gap-2">
           <Button
             variant="outline"
@@ -1209,7 +1184,6 @@ export function ResearchMap({
           </Button>
         </div>
 
-        {/* Parameter Value Range Selector Button */}
         <Dialog open={isRangeDialogOpen} onOpenChange={setIsRangeDialogOpen}>
           <DialogTrigger asChild>
             <Button
@@ -1334,7 +1308,6 @@ export function ResearchMap({
         </Dialog>
       </div>
 
-      {/* Zoom Controls */}
       <div className="absolute top-4 right-4 flex flex-col gap-3 z-10">
         <div className="bg-white/20 backdrop-blur border border-white/30 rounded-lg p-3 min-w-[160px]">
           <div className="text-white text-xs text-center mb-2 font-medium">
@@ -1370,7 +1343,6 @@ export function ResearchMap({
         </div>
       </div>
 
-      {/* Live indicator */}
       <div className="absolute top-4 right-20">
         <Badge className="bg-green-500/20 backdrop-blur text-green-100 border-green-400/30 animate-pulse">
           <Zap className="h-3 w-3 mr-1" />
