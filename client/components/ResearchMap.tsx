@@ -41,7 +41,6 @@ interface ResearchMapProps {
   ) => Promise<any[]>;
 }
 
-// 卫星参数映射 - 更新为统一数据结构
 const SATELLITE_MAPPING = {
   ssth: {
     satellite: "himawari",
@@ -98,21 +97,15 @@ export function ResearchMap({
   const [tempMin, setTempMin] = useState<string>("");
   const [tempMax, setTempMax] = useState<string>("");
   const [isRangeDialogOpen, setIsRangeDialogOpen] = useState(false);
-
-  // State for current image path display functionality
   const [currentImageInfo, setCurrentImageInfo] = useState<{
     filename: string;
     url: string;
     localPath?: string;
   } | null>(null);
   const [isImageInfoDialogOpen, setIsImageInfoDialogOpen] = useState(false);
-
-  // State for map view mode
   const [viewMode, setViewMode] = useState<"static" | "interactive" | "canvas">(
     "static"
   );
-
-  // Interactive map states
   const [zoomLevel, setZoomLevel] = useState(1);
   const [panPosition, setPanPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -130,15 +123,12 @@ export function ResearchMap({
   });
   const [baseScale, setBaseScale] = useState(1);
 
-  // 如果没有传入getParameterFiles，则使用useDataStore（向后兼容）
   const dataStore = !getParameterFiles ? useDataStore() : null;
   const getFiles = getParameterFiles || dataStore?.getParameterFiles;
-
   const currentParam = availableParameters.find((p) => p.id === parameter);
   const satelliteMapping =
     SATELLITE_MAPPING[parameter as keyof typeof SATELLITE_MAPPING];
 
-  // Helper function for Sentinel-3 fallback filename
   const getSentinel3FallbackFilename = (param: string) => {
     if (param === "sst-s3a") return "sentinel3a_sst.nc";
     if (param === "sst-s3b") return "sentinel3b_sst.nc";
@@ -147,29 +137,20 @@ export function ResearchMap({
     return "data.nc";
   };
 
-  // 获取当前时间戳和文件名
   const currentTimestamp = useMemo(() => {
     if (!satelliteMapping) return null;
+    if (timeRange.granularity === "all") return null;
 
-    // all 模式不生成时间戳
-    if (timeRange.granularity === "all") {
-      return null;
-    }
-
-    // Ensure UTC time and round down to the nearest hour
     const utcDate = new Date(timeRange.start.getTime());
     utcDate.setUTCMinutes(0, 0, 0);
 
-    // 不同卫星使用不同的时间戳格式
     if (parameter === "ssth") {
-      // Himawari格式: YYYYMMDDHHMMSS
       const year = utcDate.getUTCFullYear();
       const month = String(utcDate.getUTCMonth() + 1).padStart(2, "0");
       const day = String(utcDate.getUTCDate()).padStart(2, "0");
       const hour = String(utcDate.getUTCHours()).padStart(2, "0");
       return `${year}${month}${day}${hour}0000`;
     } else {
-      // Sentinel-3格式: YYYYMMDD_HHMMSS格式用于匹配
       const year = utcDate.getUTCFullYear();
       const month = String(utcDate.getUTCMonth() + 1).padStart(2, "0");
       const day = String(utcDate.getUTCDate()).padStart(2, "0");
@@ -186,7 +167,6 @@ export function ResearchMap({
     satelliteMapping,
   ]);
 
-  // Sync temp values with current range when dialog opens
   useEffect(() => {
     if (isRangeDialogOpen) {
       setTempMin(parameterMin);
@@ -194,93 +174,14 @@ export function ResearchMap({
     }
   }, [isRangeDialogOpen, parameterMin, parameterMax]);
 
-  // Generate filtered image when range changes
-  useEffect(() => {
-    console.log(`Range effect triggered for ${parameter}:`, {
-      appliedMin,
-      appliedMax,
-      availableFiles: availableFiles.length,
-      currentTimestamp,
-    });
-
-    if (appliedMin || appliedMax) {
-      // Only generate filtered image if we have a current file and range is applied
-      if (availableFiles.length > 0 && currentTimestamp) {
-        const currentFile = findBestFileForTime(
-          availableFiles,
-          timeRange.start
-        );
-
-        if (currentFile) {
-          // 创建异步函数来处理NC文件名获取
-          const handleNCFilename = async () => {
-            let ncFilename;
-            if (parameter === "ssth") {
-              ncFilename = currentFile.filename.replace(".png", ".nc");
-            } else {
-              // 对于Sentinel-3，获取唯一的NC文件（包含所有时间范围数据）
-              try {
-                if (!getFiles) {
-                  console.warn("getFiles function not available");
-                  ncFilename = getSentinel3FallbackFilename(parameter);
-                } else {
-                  const ncFiles = await getFiles?.(parameter, "nc");
-                  if (ncFiles && ncFiles.length > 0) {
-                    // Sentinel-3通常只有一个NC文件包含整个查询时间范围的数据
-                    ncFilename = ncFiles[0].filename;
-                    console.log(
-                      `Using Sentinel-3 NC file for ${parameter}: ${ncFilename}`
-                    );
-                  } else {
-                    console.warn(
-                      `No NC files found for ${parameter}, using fallback`
-                    );
-                    ncFilename = getSentinel3FallbackFilename(parameter);
-                  }
-                }
-              } catch (error) {
-                console.warn(
-                  "Failed to get NC files list, using fallback:",
-                  error
-                );
-                ncFilename = getSentinel3FallbackFilename(parameter);
-              }
-            }
-
-            const minNum = appliedMin ? parseFloat(appliedMin) : undefined;
-            const maxNum = appliedMax ? parseFloat(appliedMax) : undefined;
-            console.log(
-              `Generating filtered image for ${parameter} with range:`,
-              { minNum, maxNum, ncFilename }
-            );
-            generateFilteredImage(ncFilename, minNum, maxNum);
-          };
-
-          // 执行异步函数
-          handleNCFilename();
-        }
-      }
-    } else {
-      // Clear filtered image if no range is applied
-      console.log(`Clearing filtered image for ${parameter}`);
-      setFilteredImageUrl(null);
-    }
-  }, [appliedMin, appliedMax, availableFiles, currentTimestamp, parameter]);
-
-  // 获取数据统计信息的函数
   const fetchDataStats = async (filename: string, targetTime?: string) => {
     if (!satelliteMapping) return;
-
     setIsLoadingStats(true);
     try {
-      // 构建API URL，包含target_time参数
       let apiUrl = `http://localhost:8000/api/v1/satellites/${satelliteMapping.satellite}/${satelliteMapping.parameter}/stats/${filename}`;
-      if (targetTime) {
+      if (targetTime)
         apiUrl += `?target_time=${encodeURIComponent(targetTime)}`;
-      }
-
       const response = await fetch(apiUrl);
-
       if (response.ok) {
         const stats = await response.json();
         setDataStats({
@@ -303,14 +204,12 @@ export function ResearchMap({
     }
   };
 
-  // 生成过滤图片的函数
   const generateFilteredImage = async (
     filename: string,
     minValue?: number,
     maxValue?: number
   ) => {
     if (!satelliteMapping) return;
-
     setIsGeneratingFilteredImage(true);
     try {
       const params = new URLSearchParams();
@@ -318,21 +217,14 @@ export function ResearchMap({
         params.append("min_value", minValue.toString());
       if (maxValue !== undefined)
         params.append("max_value", maxValue.toString());
-
-      // 添加target_time参数
       const targetTime =
         timeRange.granularity === "all" ? "all" : timeRange.start.toISOString();
       params.append("target_time", targetTime);
-
-      // 添加模式参数
       params.append("mode", timeRange.granularity);
-
-      // 如果是all模式，添加时间范围参数
       if (timeRange.granularity === "all") {
         params.append("start_time", timeRange.start.toISOString());
         params.append("end_time", timeRange.end.toISOString());
       }
-
       const response = await fetch(
         `http://localhost:8000/api/v1/satellites/${
           satelliteMapping.satellite
@@ -340,7 +232,6 @@ export function ResearchMap({
           satelliteMapping.parameter
         }/filtered-image/${filename}?${params.toString()}`
       );
-
       if (response.ok) {
         const result = await response.json();
         setFilteredImageUrl(result.image);
@@ -360,51 +251,31 @@ export function ResearchMap({
     }
   };
 
-  // 获取可用文件列表
-  useEffect(() => {
-    if (satelliteMapping && getFiles) {
-      getFiles(parameter, "png").then((files) => {
-        setAvailableFiles(files);
-        console.log(`Available PNG files for ${parameter}:`, files);
-        console.log(`Current timestamp: ${currentTimestamp}`);
-      });
-    }
-  }, [parameter, satelliteMapping, getFiles, currentTimestamp]);
-
-  // 辅助函数：从Sentinel-3文件名提取时间
   const extractTimeFromSentinel3Filename = (filename: string): Date | null => {
-    // Sentinel-3 PNG文件格式: YYYYMMDD_HHMMSS.png
     const timeMatch = filename.match(/(\d{8})_(\d{6})\.png$/);
     if (timeMatch) {
-      const dateStr = timeMatch[1]; // YYYYMMDD
-      const timeStr = timeMatch[2]; // HHMMSS
-
+      const dateStr = timeMatch[1];
+      const timeStr = timeMatch[2];
       const year = dateStr.substring(0, 4);
       const month = dateStr.substring(4, 6);
       const day = dateStr.substring(6, 8);
       const hour = timeStr.substring(0, 2);
       const minute = timeStr.substring(2, 4);
       const second = timeStr.substring(4, 6);
-
       return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`);
     }
     return null;
   };
 
-  // 通用文件查找函数：根据时间查找最合适的文件
   const findBestFileForTime = (files: any[], selectedTime: Date) => {
     if (timeRange.granularity === "all") {
-      // all 模式：返回时间范围内最接近endTime的文件
       const endTime = timeRange.end;
       console.log("All mode - endTime:", endTime, "files count:", files.length);
       let bestFile = null;
       let bestTimeDiff = Infinity;
-
       for (const file of files) {
         let fileTime: Date | null = null;
-
         if (parameter === "ssth") {
-          // Himawari 文件时间提取
           const timeMatch = file.filename.match(/(\d{8})(\d{6})\.png$/);
           if (timeMatch) {
             const dateStr = timeMatch[1];
@@ -428,11 +299,8 @@ export function ResearchMap({
             );
           }
         } else {
-          // Sentinel-3 文件时间提取
           fileTime = extractTimeFromSentinel3Filename(file.filename);
         }
-
-        // 查找最接近endTime的文件（允许文件时间稍晚于endTime）
         if (fileTime) {
           const timeDiff = Math.abs(endTime.getTime() - fileTime.getTime());
           if (timeDiff < bestTimeDiff) {
@@ -441,27 +309,21 @@ export function ResearchMap({
           }
         }
       }
-
       console.log(
         "All mode - selected file:",
         bestFile?.filename,
         "timeDiff:",
         bestTimeDiff
       );
-      return bestFile || files[0]; // 如果没有找到合适的，返回最新文件
+      return bestFile || files[0];
     }
 
-    // Day和Week模式：使用精确时间戳匹配
-    if (timeRange.granularity === "day") {
-      // Day模式：使用类似Week模式的动态选择，选择最接近selectedTime的文件
+    if (timeRange.granularity === "day" || timeRange.granularity === "week") {
       let bestFile = null;
       let bestTimeDiff = Infinity;
-
       for (const file of files) {
         let fileTime: Date | null = null;
-
         if (parameter === "ssth") {
-          // Himawari 文件时间提取
           const timeMatch = file.filename.match(/(\d{8})(\d{6})\.png$/);
           if (timeMatch) {
             const dateStr = timeMatch[1];
@@ -477,11 +339,8 @@ export function ResearchMap({
             );
           }
         } else {
-          // Sentinel-3 文件时间提取
           fileTime = extractTimeFromSentinel3Filename(file.filename);
         }
-
-        // 查找最接近selectedTime的文件
         if (fileTime) {
           const timeDiff = Math.abs(
             selectedTime.getTime() - fileTime.getTime()
@@ -492,52 +351,81 @@ export function ResearchMap({
           }
         }
       }
-
-      return bestFile || files[0];
-    } else if (timeRange.granularity === "week") {
-      // Week模式：使用类似All模式的逻辑，选择最接近selectedTime的文件
-      let bestFile = null;
-      let bestTimeDiff = Infinity;
-
-      for (const file of files) {
-        let fileTime: Date | null = null;
-
-        if (parameter === "ssth") {
-          // Himawari 文件时间提取
-          const timeMatch = file.filename.match(/(\d{8})(\d{6})\.png$/);
-          if (timeMatch) {
-            const dateStr = timeMatch[1];
-            const timeStr = timeMatch[2];
-            const year = dateStr.substring(0, 4);
-            const month = dateStr.substring(4, 6);
-            const day = dateStr.substring(6, 8);
-            const hour = timeStr.substring(0, 2);
-            const minute = timeStr.substring(2, 4);
-            const second = timeStr.substring(4, 6);
-            fileTime = new Date(
-              `${year}-${month}-${day}T${hour}:${minute}:${second}Z`
-            );
-          }
-        } else {
-          // Sentinel-3 文件时间提取
-          fileTime = extractTimeFromSentinel3Filename(file.filename);
-        }
-
-        // 查找最接近selectedTime的文件
-        if (fileTime) {
-          const timeDiff = Math.abs(
-            selectedTime.getTime() - fileTime.getTime()
-          );
-          if (timeDiff < bestTimeDiff) {
-            bestTimeDiff = timeDiff;
-            bestFile = file;
-          }
-        }
-      }
-
       return bestFile || files[0];
     }
   };
+
+  useEffect(() => {
+    console.log(`Range effect triggered for ${parameter}:`, {
+      appliedMin,
+      appliedMax,
+      availableFiles: availableFiles.length,
+      currentTimestamp,
+    });
+    if (appliedMin || appliedMax) {
+      if (availableFiles.length > 0 && currentTimestamp) {
+        const currentFile = findBestFileForTime(
+          availableFiles,
+          timeRange.start
+        );
+        if (currentFile) {
+          const handleNCFilename = async () => {
+            let ncFilename;
+            if (parameter === "ssth") {
+              ncFilename = currentFile.filename.replace(".png", ".nc");
+            } else {
+              try {
+                if (!getFiles) {
+                  console.warn("getFiles function not available");
+                  ncFilename = getSentinel3FallbackFilename(parameter);
+                } else {
+                  const ncFiles = await getFiles?.(parameter, "nc");
+                  if (ncFiles && ncFiles.length > 0) {
+                    ncFilename = ncFiles[0].filename;
+                    console.log(
+                      `Using Sentinel-3 NC file for ${parameter}: ${ncFilename}`
+                    );
+                  } else {
+                    console.warn(
+                      `No NC files found for ${parameter}, using fallback`
+                    );
+                    ncFilename = getSentinel3FallbackFilename(parameter);
+                  }
+                }
+              } catch (error) {
+                console.warn(
+                  "Failed to get NC files list, using fallback:",
+                  error
+                );
+                ncFilename = getSentinel3FallbackFilename(parameter);
+              }
+            }
+            const minNum = appliedMin ? parseFloat(appliedMin) : undefined;
+            const maxNum = appliedMax ? parseFloat(appliedMax) : undefined;
+            console.log(
+              `Generating filtered image for ${parameter} with range:`,
+              { minNum, maxNum, ncFilename }
+            );
+            generateFilteredImage(ncFilename, minNum, maxNum);
+          };
+          handleNCFilename();
+        }
+      }
+    } else {
+      console.log(`Clearing filtered image for ${parameter}`);
+      setFilteredImageUrl(null);
+    }
+  }, [appliedMin, appliedMax, availableFiles, currentTimestamp, parameter]);
+
+  useEffect(() => {
+    if (satelliteMapping && getFiles) {
+      getFiles(parameter, "png").then((files) => {
+        setAvailableFiles(files);
+        console.log(`Available PNG files for ${parameter}:`, files);
+        console.log(`Current timestamp: ${currentTimestamp}`);
+      });
+    }
+  }, [parameter, satelliteMapping, getFiles, currentTimestamp]);
 
   useEffect(() => {
     if (satelliteMapping && availableFiles.length > 0) {
@@ -546,14 +434,9 @@ export function ResearchMap({
         end: timeRange.end,
         granularity: timeRange.granularity,
       });
-      // 寻找最匹配的文件
       let targetFile: any = null;
-
-      // 使用通用文件查找函数
-      // 所有模式都使用timeRange.end（当前滑动位置时间）
       const selectedTime = timeRange.end;
       targetFile = findBestFileForTime(availableFiles, selectedTime);
-
       console.log(
         `Looking for file with timestamp: ${currentTimestamp || "all"}`
       );
@@ -564,18 +447,14 @@ export function ResearchMap({
 
       if (targetFile) {
         const pngUrl = `http://localhost:8000${targetFile.url}`;
-
-        // 获取对应的NC文件名来获取数据统计信息
         const handleStatsRetrieval = async () => {
           let ncFilename;
           if (parameter === "ssth") {
             ncFilename = targetFile.filename.replace(".png", ".nc");
           } else {
-            // 对于Sentinel-3，动态获取NC文件（类似Himawari的方式）
             try {
               const ncFiles = await getFiles?.(parameter, "nc");
               if (ncFiles && ncFiles.length > 0) {
-                // 使用最新的NC文件（按修改时间排序）
                 ncFilename = ncFiles[0].filename;
                 console.log(
                   `Using latest NC file for stats ${parameter}: ${ncFilename}`
@@ -594,8 +473,6 @@ export function ResearchMap({
               ncFilename = getSentinel3FallbackFilename(parameter);
             }
           }
-
-          // 传递目标时间给API
           const targetTime =
             timeRange.granularity === "all"
               ? "all"
@@ -605,35 +482,23 @@ export function ResearchMap({
           );
           fetchDataStats(ncFilename, targetTime);
         };
-
-        // 执行异步函数
         handleStatsRetrieval();
 
-        // 避免重复加载相同的图片
-        if (imageUrl === pngUrl) {
-          return;
-        }
-
+        if (imageUrl === pngUrl) return;
         setIsLoading(true);
         setImageError(false);
-
         console.log(`Loading ${parameter} image:`, targetFile.filename);
         console.log(`Image URL: ${pngUrl}`);
 
-        // Check if image exists
         const img = new Image();
         img.onload = () => {
           setImageUrl(pngUrl);
           setIsLoading(false);
-
-          // Update current image info for path display functionality
-          // Use absolute directory path from backend if available
           const absolutePath = targetFile.directory
             ? `${targetFile.directory}${
                 targetFile.directory.includes("\\") ? "\\" : "/"
               }${targetFile.filename}`
             : `data/${satelliteMapping.satellite}/${satelliteMapping.parameter}/png/${targetFile.filename}`;
-
           const imageInfo = {
             filename: targetFile.filename,
             url: pngUrl,
@@ -658,12 +523,10 @@ export function ResearchMap({
         setIsLoading(false);
       }
     } else if (satelliteMapping) {
-      // 参数支持但没有可用文件
       setIsLoading(false);
       setImageUrl(null);
       setImageError(true);
     } else {
-      // 不支持的参数，显示占位符
       setIsLoading(false);
       setImageUrl(null);
       setImageError(false);
@@ -678,25 +541,20 @@ export function ResearchMap({
     timeRange.granularity,
   ]);
 
-  // ResizeObserver to track container dimensions and calculate base scale
   useEffect(() => {
     if (!imageContainer) return;
-
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         setContainerDimensions({ width, height });
       }
     });
-
     resizeObserver.observe(imageContainer);
-
     return () => {
       resizeObserver.disconnect();
     };
   }, [imageContainer]);
 
-  // Calculate base scale when image dimensions or container dimensions change
   useEffect(() => {
     if (
       imageDimensions.width &&
@@ -707,13 +565,11 @@ export function ResearchMap({
       const scaleX = containerDimensions.width / imageDimensions.width;
       const scaleY = containerDimensions.height / imageDimensions.height;
       const newBaseScale = Math.min(scaleX, scaleY);
-
       setBaseScale(newBaseScale);
       setPanPosition({ x: 0, y: 0 });
     }
   }, [imageDimensions, containerDimensions]);
 
-  // Zoom handlers with proper origin point and boundaries
   const constrainPan = (
     x: number,
     y: number,
@@ -722,14 +578,11 @@ export function ResearchMap({
     containerHeight: number
   ) => {
     if (zoom <= 1) return { x: 0, y: 0 };
-
     const displayScale = baseScale * zoom;
     const displayedWidth = imageDimensions.width * displayScale;
     const displayedHeight = imageDimensions.height * displayScale;
-
     const maxPanX = Math.max(0, (displayedWidth - containerWidth) / 2);
     const maxPanY = Math.max(0, (displayedHeight - containerHeight) / 2);
-
     return {
       x: Math.max(-maxPanX, Math.min(maxPanX, x)),
       y: Math.max(-maxPanY, Math.min(maxPanY, y)),
@@ -738,19 +591,15 @@ export function ResearchMap({
 
   const handleZoomChange = (value: number[]) => {
     const newZoom = value[0];
-
     if (!imageContainer) {
       setZoomLevel(newZoom);
       setPanPosition({ x: 0, y: 0 });
       return;
     }
-
     const containerRect = imageContainer.getBoundingClientRect();
     const scaleFactor = newZoom / zoomLevel;
-
     const newPanX = panPosition.x * scaleFactor;
     const newPanY = panPosition.y * scaleFactor;
-
     const constrainedPan = constrainPan(
       newPanX,
       newPanY,
@@ -758,7 +607,6 @@ export function ResearchMap({
       containerRect.width,
       containerRect.height
     );
-
     setZoomLevel(newZoom);
     setPanPosition(constrainedPan);
   };
@@ -769,16 +617,12 @@ export function ResearchMap({
     newZoom: number
   ) => {
     if (!imageContainer) return;
-
     const containerRect = imageContainer.getBoundingClientRect();
     const pointX = clientX - containerRect.left;
     const pointY = clientY - containerRect.top;
-
     const scaleFactor = newZoom / zoomLevel;
-
     const newPanX = pointX - (pointX - panPosition.x) * scaleFactor;
     const newPanY = pointY - (pointY - panPosition.y) * scaleFactor;
-
     const constrainedPan = constrainPan(
       newPanX,
       newPanY,
@@ -786,7 +630,6 @@ export function ResearchMap({
       containerRect.width,
       containerRect.height
     );
-
     setZoomLevel(newZoom);
     setPanPosition(constrainedPan);
   };
@@ -821,7 +664,6 @@ export function ResearchMap({
         x: e.clientX - dragStart.x,
         y: e.clientY - dragStart.y,
       };
-
       const constrainedPan = constrainPan(
         newPan.x,
         newPan.y,
@@ -845,7 +687,6 @@ export function ResearchMap({
     e.preventDefault();
     const delta = e.deltaY > 0 ? -0.1 : 0.1;
     const newZoom = Math.max(0.5, Math.min(5, zoomLevel + delta));
-
     if (newZoom !== zoomLevel) {
       handleZoomAtPoint(e.clientX, e.clientY, newZoom);
     }
@@ -865,10 +706,7 @@ export function ResearchMap({
         isFullscreen ? "h-full" : "h-96"
       } rounded-lg overflow-hidden`}
       style={{
-        background: `
-        radial-gradient(ellipse at 20% 30%, #0a1a2e 0%, #16213e 40%, #1e3a8a 80%, #3b82f6 100%),
-        linear-gradient(135deg, #0f172a 0%, #1e3a8a 30%, #3b82f6 60%, #60a5fa 100%)
-      `,
+        background: `radial-gradient(ellipse at 20% 30%, #0a1a2e 0%, #16213e 40%, #1e3a8a 80%, #3b82f6 100%), linear-gradient(135deg, #0f172a 0%, #1e3a8a 30%, #3b82f6 60%, #60a5fa 100%)`,
         backgroundBlendMode: "multiply, normal",
       }}
     >
@@ -877,10 +715,7 @@ export function ResearchMap({
           ref={setImageContainer}
           className="absolute inset-0 w-full h-full flex items-center justify-center overflow-hidden cursor-grab"
           style={{
-            background: `
-            radial-gradient(ellipse at center, #0a1a2e 0%, #16213e 30%, #1e3a8a 70%, #3b82f6 100%),
-            linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #3b82f6 100%)
-          `,
+            background: `radial-gradient(ellipse at center, #0a1a2e 0%, #16213e 30%, #1e3a8a 70%, #3b82f6 100%), linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #3b82f6 100%)`,
             backgroundBlendMode: "multiply, normal",
             cursor: isDragging
               ? "grabbing"
@@ -912,7 +747,6 @@ export function ResearchMap({
             />
           </div>
           <div className="absolute inset-0 bg-black/10 pointer-events-none"></div>
-
           {isGeneratingFilteredImage && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-lg">
               <div className="text-white text-center">
@@ -921,7 +755,6 @@ export function ResearchMap({
               </div>
             </div>
           )}
-
           {(appliedMin || appliedMax) && dataStats && (
             <div className="absolute top-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded">
               Range: {appliedMin || dataStats.min.toFixed(3)} -{" "}
@@ -985,7 +818,6 @@ export function ResearchMap({
             </div>
           </Badge>
         )}
-
         {(appliedMin || appliedMax) && (
           <Badge className="bg-blue-500/20 backdrop-blur text-blue-100 border-blue-400/30 whitespace-nowrap">
             <div className="text-xs">
@@ -1026,7 +858,6 @@ export function ResearchMap({
                       {currentImageInfo.filename}
                     </div>
                   </div>
-
                   <div>
                     <Label className="text-sm font-medium text-gray-700">
                       Local Path
@@ -1050,7 +881,6 @@ export function ResearchMap({
                                 }),
                               }
                             );
-
                             if (response.ok) {
                               console.log("File manager opened successfully");
                             } else {
@@ -1092,7 +922,6 @@ export function ResearchMap({
                         <FolderOpen className="h-3 w-3 mr-1" />
                         Open Path
                       </Button>
-
                       <Button
                         variant="outline"
                         size="sm"
@@ -1113,7 +942,6 @@ export function ResearchMap({
                       </Button>
                     </div>
                   </div>
-
                   <div>
                     <Label className="text-sm font-medium text-gray-700">
                       Server URL
@@ -1133,7 +961,6 @@ export function ResearchMap({
                       Open in Browser
                     </Button>
                   </div>
-
                   <div className="p-3 bg-blue-50 rounded border border-blue-200">
                     <p className="text-xs text-blue-700 font-medium mb-1">
                       Image Details:
@@ -1147,7 +974,6 @@ export function ResearchMap({
                     </div>
                   </div>
                 </div>
-
                 <div className="flex justify-end">
                   <Button
                     variant="outline"
@@ -1160,7 +986,6 @@ export function ResearchMap({
             </DialogContent>
           </Dialog>
         )}
-
         <div className="flex flex-col gap-2">
           <Button
             variant="outline"
@@ -1183,7 +1008,6 @@ export function ResearchMap({
             Interactive
           </Button>
         </div>
-
         <Dialog open={isRangeDialogOpen} onOpenChange={setIsRangeDialogOpen}>
           <DialogTrigger asChild>
             <Button
@@ -1223,7 +1047,6 @@ export function ResearchMap({
                       </p>
                     </div>
                   </div>
-
                   <div className="space-y-3">
                     <div>
                       <Label
@@ -1242,7 +1065,6 @@ export function ResearchMap({
                         step="0.001"
                       />
                     </div>
-
                     <div>
                       <Label
                         htmlFor="max-value"
@@ -1267,7 +1089,6 @@ export function ResearchMap({
                   No statistics available for this parameter
                 </div>
               )}
-
               <div className="flex justify-between gap-2">
                 <Button
                   variant="outline"
@@ -1313,7 +1134,6 @@ export function ResearchMap({
           <div className="text-white text-xs text-center mb-2 font-medium">
             Zoom: {Math.round(zoomLevel * 100)}%
           </div>
-
           <Slider
             value={[zoomLevel]}
             onValueChange={handleZoomChange}
@@ -1322,12 +1142,10 @@ export function ResearchMap({
             step={0.1}
             className="w-full"
           />
-
           <div className="flex justify-between text-white text-xs mt-1 opacity-75">
             <span>0.5x</span>
             <span>5x</span>
           </div>
-
           {(zoomLevel !== 1 || panPosition.x !== 0 || panPosition.y !== 0) && (
             <Button
               variant="outline"
