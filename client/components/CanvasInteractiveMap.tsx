@@ -801,6 +801,63 @@ export function CanvasInteractiveMap({
         </Badge>
       </div>
 
+      {/* Color Legend - Enhanced Premium Style */}
+      {ncData && (
+        <div className="absolute bottom-4 right-4 z-[1000] bg-transparent p-4">
+          <div className="flex items-center gap-4">
+            {/* Color bar */}
+            <div className="relative">
+              <div 
+                className="w-4 h-36 rounded-sm border-2 border-gray-800"
+                style={{
+                  background: `linear-gradient(to bottom, 
+                    #8b0000 0%,     /* Dark reddish-brown (298) */
+                    #ff8c00 25%,    /* Orange (297) */
+                    #ffff00 50%,    /* Yellowish-green (296) */
+                    #00bfff 75%,    /* Light blue/cyan (295) */
+                    #191970 100%)`  /* Very dark purplish-blue (294) */
+                }}
+              />
+            </div>
+            
+            {/* Values */}
+            <div className="flex flex-col justify-between h-36">
+              <div className="flex items-center">
+                <div className="w-3 h-0.5 bg-gray-800 mr-3"></div>
+                <span className="text-sm font-semibold text-gray-800">298</span>
+              </div>
+              <div className="flex items-center">
+                <div className="w-3 h-0.5 bg-gray-800 mr-3"></div>
+                <span className="text-sm font-semibold text-gray-800">297</span>
+              </div>
+              <div className="flex items-center">
+                <div className="w-3 h-0.5 bg-gray-800 mr-3"></div>
+                <span className="text-sm font-semibold text-gray-800">296</span>
+              </div>
+              <div className="flex items-center">
+                <div className="w-3 h-0.5 bg-gray-800 mr-3"></div>
+                <span className="text-sm font-semibold text-gray-800">295</span>
+              </div>
+              <div className="flex items-center">
+                <div className="w-3 h-0.5 bg-gray-800 mr-3"></div>
+                <span className="text-sm font-semibold text-gray-800">294</span>
+              </div>
+            </div>
+            
+            {/* Parameter name */}
+            <div 
+              className="text-sm font-medium text-gray-800"
+              style={{
+                writingMode: 'vertical-rl',
+                textOrientation: 'mixed'
+              }}
+            >
+              Sea Surface Temperature (K)
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tooltip */}
       {hoveredPoint && (
         <div
