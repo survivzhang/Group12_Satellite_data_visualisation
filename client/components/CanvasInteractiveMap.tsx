@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
+import { useMapEvents, useMap } from "react-leaflet";
+import type { LeafletMouseEvent } from "leaflet";
 import { Parameter, TimeRange } from "@/types/research";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,14 +32,7 @@ const TileLayer = dynamic(
   () => import("react-leaflet").then((mod) => mod.TileLayer),
   { ssr: false }
 );
-const useMapEvents = dynamic(
-  () => import("react-leaflet").then((mod) => mod.useMapEvents),
-  { ssr: false }
-);
-const useMap = dynamic(
-  () => import("react-leaflet").then((mod) => mod.useMap),
-  { ssr: false }
-);
+// 注意：hooks 直接导入即可（本组件为 client 组件，不会在 SSR 运行）
 const ImageOverlay = dynamic(
   () => import("react-leaflet").then((mod) => mod.ImageOverlay),
   { ssr: false }
@@ -242,6 +237,93 @@ const getColorForValue = (value: number, min: number, max: number, parameter: st
   return getTurboColor(value, min, max);
 };
 
+// 参数到文案/默认单位映射（仅用于 Legend 展示，不影响现有渲染）
+const PARAMETER_META: Record<string, { label: string; defaultUnit: string }> = {
+  ssth: { label: "Sea Surface Temperature", defaultUnit: "K" },
+  "sst-s3a": { label: "Sea Surface Temperature", defaultUnit: "K" },
+  "sst-s3b": { label: "Sea Surface Temperature", defaultUnit: "K" },
+  "chl-s3a": { label: "Chlorophyll-a", defaultUnit: "mg/m³" },
+  "chl-s3b": { label: "Chlorophyll-a", defaultUnit: "mg/m³" },
+  "ssha-swot": { label: "Sea Surface Height Anomaly", defaultUnit: "m" },
+};
+
+// 动态色标组件（与 Canvas 使用同一色表/范围）
+function Legend({
+  parameter,
+  min,
+  max,
+  unit,
+}: {
+  parameter: string;
+  min: number;
+  max: number;
+  unit?: string;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // 数值格式化：不同单位保留不同小数位
+  const format = useCallback(
+    (v: number) => {
+      const u = unit || PARAMETER_META[parameter]?.defaultUnit || "";
+      if (u === "K") return v.toFixed(2);
+      // CHL/SSHA 一般较小，保留更多位
+      return v.toFixed(3);
+    },
+    [parameter, unit]
+  );
+
+  useEffect(() => {
+    const c = canvasRef.current;
+    if (!c || !isFinite(min) || !isFinite(max) || min === max) return;
+
+    const width = 16;
+    const height = 220;
+    c.width = width;
+    c.height = height;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+
+    // 逐像素绘制纵向渐变（上为 max，下为 min）
+    for (let y = 0; y < height; y++) {
+      const t = y / (height - 1);
+      const value = max - t * (max - min);
+      const [r, g, b] = getColorForValue(value, min, max, parameter);
+      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+      ctx.fillRect(0, y, width, 1);
+    }
+    // 边框
+    ctx.strokeStyle = "rgba(255,255,255,0.6)";
+    ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
+  }, [parameter, min, max]);
+
+  const meta = PARAMETER_META[parameter] || { label: parameter, defaultUnit: unit || "" };
+  const u = unit || meta.defaultUnit;
+  const mid = (min + max) / 2;
+  const q1 = min + 0.25 * (max - min);
+  const q3 = min + 0.75 * (max - min);
+
+  return (
+    <div className="absolute right-4 bottom-4 z-[1001] select-none">
+      <div className="flex items-end gap-2 p-2 rounded-md bg-black/35 backdrop-blur text-white border border-white/20">
+        <canvas ref={canvasRef} style={{ width: 16, height: 220 }} />
+        <div className="flex flex-col justify-between h-[220px] text-[10px] leading-none pr-1">
+          <div>{format(max)}</div>
+          <div>{format(q3)}</div>
+          <div>{format(mid)}</div>
+          <div>{format(q1)}</div>
+          <div>{format(min)}</div>
+        </div>
+        <div
+          className="pl-1 text-[11px] whitespace-nowrap font-medium h-[220px] flex items-center justify-center"
+          style={{ writingMode: "vertical-rl", textOrientation: "mixed", textAlign: "center" }}
+        >
+          {meta.label} ({u})
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // 这些函数不再需要，因为我们使用网格渲染而不是点扩散
 // const calculateSpreadRadius = ...
 // const gaussianKernel = ...
@@ -369,7 +451,7 @@ function CanvasHeatmapOverlay({
   // 地图事件监听器 - 用于交互
   function MapEventHandler() {
     useMapEvents({
-      click: (e) => {
+      click: (e: LeafletMouseEvent) => {
         // 处理点击事件，查找最近的数据点
         if (!ncData) return;
         
@@ -840,6 +922,14 @@ export function CanvasInteractiveMap({
           onPointHover={handlePointHover}
         />
       </MapContainer>
+
+      {/* 动态色标（与 Canvas 调色一致） */}
+      <Legend 
+        parameter={parameter} 
+        min={ncData.min_value} 
+        max={ncData.max_value} 
+        unit={ncData.units} 
+      />
     </div>
   );
 }
