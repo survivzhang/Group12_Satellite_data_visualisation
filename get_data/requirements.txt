@@ -79,7 +79,6 @@ mypy>=1.5.0
 # Authentication and Security
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
-python-multipart>=0.0.6
 
 # Monitoring and Logging
 structlog>=23.1.0
@@ -92,9 +91,6 @@ zarr>=2.16.0
 
 # System Monitoring
 psutil>=5.9.0
-
-# Static File Serving (for PNG images)
-aiofiles>=23.2.0
 
 # SSL/TLS Support (for EUMETView)
 urllib3>=2.0.0
