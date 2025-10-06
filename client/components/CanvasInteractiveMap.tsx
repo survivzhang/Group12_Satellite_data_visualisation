@@ -32,7 +32,7 @@ const TileLayer = dynamic(
   () => import("react-leaflet").then((mod) => mod.TileLayer),
   { ssr: false }
 );
-// 注意：hooks 直接导入即可（本组件为 client 组件，不会在 SSR 运行）
+// Note: hooks can be imported directly (this is a client component and will not run during SSR)
 const ImageOverlay = dynamic(
   () => import("react-leaflet").then((mod) => mod.ImageOverlay),
   { ssr: false }
@@ -69,7 +69,7 @@ interface SimpleNCData {
   filename: string;
 }
 
-// 卫星参数映射
+// Satellite parameter mapping
 const SATELLITE_MAPPING = {
   ssth: {
     satellite: "himawari",
@@ -112,27 +112,27 @@ const getSentinel3FallbackFilename = (param: string): string => {
   }
 };
 
-// Turbo 色彩映射函数 - 匹配matplotlib的turbo colormap
+// Turbo colormap function - matches matplotlib's turbo colormap
 const getTurboColor = (value: number, min: number, max: number): [number, number, number] => {
   const normalized = Math.max(0, Math.min(1, (value - min) / (max - min)));
   
-  // Turbo colormap的RGB值（简化版本，与matplotlib的turbo接近）
+  // RGB values for the Turbo colormap (simplified, close to matplotlib's turbo)
   const turboColors = [
-    [0.18995, 0.07176, 0.23217], // 深紫
-    [0.25107, 0.25237, 0.63374], // 蓝紫
-    [0.19308, 0.42742, 0.81005], // 蓝色
-    [0.15844, 0.57810, 0.83226], // 青蓝
-    [0.17423, 0.71895, 0.79130], // 青色
-    [0.25862, 0.83590, 0.67178], // 青绿
-    [0.42956, 0.91471, 0.47662], // 绿色
-    [0.64362, 0.94276, 0.23267], // 黄绿
-    [0.86581, 0.86482, 0.01048], // 黄色
-    [0.98517, 0.64499, 0.01630], // 橙色
-    [0.95593, 0.39466, 0.13098], // 橙红
-    [0.84071, 0.18056, 0.18024], // 红色
+    [0.18995, 0.07176, 0.23217], // deep purple
+    [0.25107, 0.25237, 0.63374], // blue-violet
+    [0.19308, 0.42742, 0.81005], // blue
+    [0.15844, 0.57810, 0.83226], // cyan-blue
+    [0.17423, 0.71895, 0.79130], // cyan
+    [0.25862, 0.83590, 0.67178], // cyan-green
+    [0.42956, 0.91471, 0.47662], // green
+    [0.64362, 0.94276, 0.23267], // yellow-green
+    [0.86581, 0.86482, 0.01048], // yellow
+    [0.98517, 0.64499, 0.01630], // orange
+    [0.95593, 0.39466, 0.13098], // orange-red
+    [0.84071, 0.18056, 0.18024], // red
   ];
   
-  // 插值计算
+  // Interpolation
   const segments = turboColors.length - 1;
   const segment = Math.floor(normalized * segments);
   const t = (normalized * segments) - segment;
@@ -150,21 +150,21 @@ const getTurboColor = (value: number, min: number, max: number): [number, number
   return [r, g, b];
 };
 
-// Viridis 色彩映射函数 - 匹配matplotlib的viridis colormap
+// Viridis colormap function - matches matplotlib's viridis colormap
 const getViridisColor = (value: number, min: number, max: number): [number, number, number] => {
   const normalized = Math.max(0, Math.min(1, (value - min) / (max - min)));
   
   const viridisColors = [
-    [0.267004, 0.004874, 0.329415], // 深紫
-    [0.282623, 0.140926, 0.457517], // 紫色
-    [0.253935, 0.265254, 0.529983], // 蓝紫
-    [0.206756, 0.371758, 0.553117], // 蓝色
-    [0.163625, 0.471133, 0.558148], // 青蓝
-    [0.127568, 0.566949, 0.550556], // 青色
-    [0.134692, 0.658636, 0.517649], // 青绿
-    [0.266941, 0.748751, 0.440573], // 绿色
-    [0.477504, 0.821444, 0.318195], // 黄绿
-    [0.741388, 0.873449, 0.149561], // 黄色
+    [0.267004, 0.004874, 0.329415], // deep purple
+    [0.282623, 0.140926, 0.457517], // purple
+    [0.253935, 0.265254, 0.529983], // blue-violet
+    [0.206756, 0.371758, 0.553117], // blue
+    [0.163625, 0.471133, 0.558148], // cyan-blue
+    [0.127568, 0.566949, 0.550556], // cyan
+    [0.134692, 0.658636, 0.517649], // cyan-green
+    [0.266941, 0.748751, 0.440573], // green
+    [0.477504, 0.821444, 0.318195], // yellow-green
+    [0.741388, 0.873449, 0.149561], // yellow
   ];
   
   const segments = viridisColors.length - 1;
@@ -184,23 +184,23 @@ const getViridisColor = (value: number, min: number, max: number): [number, numb
   return [r, g, b];
 };
 
-// Spectral 色彩映射函数 - 匹配matplotlib的Spectral colormap (用于SSHA)
+// Spectral colormap function - matches matplotlib's Spectral colormap (used for SSHA)
 const getSpectralColor = (value: number, min: number, max: number): [number, number, number] => {
   const normalized = Math.max(0, Math.min(1, (value - min) / (max - min)));
   
   const spectralColors = [
-    [0.61960784, 0.00392157, 0.25882353], // 深红
-    [0.83529412, 0.24313725, 0.30980392], // 红
-    [0.95686275, 0.42745098, 0.26274510], // 橙红
-    [0.99215686, 0.68235294, 0.38039216], // 橙
-    [0.99607843, 0.87843137, 0.54509804], // 黄橙
-    [1.00000000, 1.00000000, 0.74901961], // 黄
-    [0.90196078, 0.96078431, 0.59607843], // 黄绿
-    [0.67058824, 0.86666667, 0.64313725], // 绿
-    [0.40000000, 0.76078431, 0.64705882], // 青绿
-    [0.19607843, 0.53333333, 0.74117647], // 蓝
-    [0.36862745, 0.30980392, 0.63529412], // 蓝紫
-    [0.36862745, 0.30980392, 0.63529412], // 紫
+    [0.61960784, 0.00392157, 0.25882353], // deep red
+    [0.83529412, 0.24313725, 0.30980392], // red
+    [0.95686275, 0.42745098, 0.26274510], // orange-red
+    [0.99215686, 0.68235294, 0.38039216], // orange
+    [0.99607843, 0.87843137, 0.54509804], // yellow-orange
+    [1.00000000, 1.00000000, 0.74901961], // yellow
+    [0.90196078, 0.96078431, 0.59607843], // yellow-green
+    [0.67058824, 0.86666667, 0.64313725], // green
+    [0.40000000, 0.76078431, 0.64705882], // cyan-green
+    [0.19607843, 0.53333333, 0.74117647], // blue
+    [0.36862745, 0.30980392, 0.63529412], // blue-violet
+    [0.36862745, 0.30980392, 0.63529412], // purple
   ];
   
   const segments = spectralColors.length - 1;
@@ -220,24 +220,24 @@ const getSpectralColor = (value: number, min: number, max: number): [number, num
   return [r, g, b];
 };
 
-// 主颜色映射函数 - 匹配静态PNG的色彩方案
+// Main color mapping function - matches the color scheme of static PNGs
 const getColorForValue = (value: number, min: number, max: number, parameter: string): [number, number, number] => {
   if (parameter.includes("sst") || parameter === "ssth") {
-    // SST使用turbo colormap（和静态PNG一样）
+    // SST uses the turbo colormap (same as static PNG)
     return getTurboColor(value, min, max);
   } else if (parameter.includes("chl")) {
-    // 叶绿素使用viridis colormap
+    // Chlorophyll uses the viridis colormap
     return getViridisColor(value, min, max);
   } else if (parameter.includes("ssha") || parameter === "ssha-swot") {
-    // SSHA使用Spectral colormap（和静态PNG一样）
+    // SSHA uses the Spectral colormap (same as static PNG)
     return getSpectralColor(value, min, max);
   }
   
-  // 默认使用turbo
+  // Use turbo by default
   return getTurboColor(value, min, max);
 };
 
-// 参数到文案/默认单位映射（仅用于 Legend 展示，不影响现有渲染）
+// Parameter to label/default unit mapping (legend display only; does not affect existing rendering)
 const PARAMETER_META: Record<string, { label: string; defaultUnit: string }> = {
   ssth: { label: "Sea Surface Temperature", defaultUnit: "K" },
   "sst-s3a": { label: "Sea Surface Temperature", defaultUnit: "K" },
@@ -247,7 +247,7 @@ const PARAMETER_META: Record<string, { label: string; defaultUnit: string }> = {
   "ssha-swot": { label: "Sea Surface Height Anomaly", defaultUnit: "m" },
 };
 
-// 动态色标组件（与 Canvas 使用同一色表/范围）
+// Dynamic colorbar component (shares the same colormap/range as Canvas)
 function Legend({
   parameter,
   min,
@@ -261,12 +261,12 @@ function Legend({
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // 数值格式化：不同单位保留不同小数位
+  // Value formatting: different units keep different decimal places
   const format = useCallback(
     (v: number) => {
       const u = unit || PARAMETER_META[parameter]?.defaultUnit || "";
       if (u === "K") return v.toFixed(2);
-      // CHL/SSHA 一般较小，保留更多位
+      // CHL/SSHA values are usually small; keep more decimal places
       return v.toFixed(3);
     },
     [parameter, unit]
@@ -283,7 +283,7 @@ function Legend({
     const ctx = c.getContext("2d");
     if (!ctx) return;
 
-    // 逐像素绘制纵向渐变（上为 max，下为 min）
+    // Draw vertical gradient pixel by pixel (top = max, bottom = min)
     for (let y = 0; y < height; y++) {
       const t = y / (height - 1);
       const value = max - t * (max - min);
@@ -291,7 +291,7 @@ function Legend({
       ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
       ctx.fillRect(0, y, width, 1);
     }
-    // 边框
+    // Border
     ctx.strokeStyle = "rgba(255,255,255,0.6)";
     ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
   }, [parameter, min, max]);
@@ -324,11 +324,11 @@ function Legend({
   );
 }
 
-// 这些函数不再需要，因为我们使用网格渲染而不是点扩散
+// These functions are no longer needed because we use grid rendering instead of point spreading
 // const calculateSpreadRadius = ...
 // const gaussianKernel = ...
 
-// Canvas热力图生成器组件 - 按照你的成功实现方法
+// Canvas heatmap generator component - follows your successful implementation
 function CanvasHeatmapOverlay({ 
   ncData, 
   parameter, 
@@ -341,13 +341,13 @@ function CanvasHeatmapOverlay({
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageBounds, setImageBounds] = useState<[[number, number], [number, number]] | null>(null);
 
-  // 生成热力图图片的核心函数
+  // Core function to generate the heatmap image
   const generateHeatmapImage = useCallback(() => {
     if (!ncData) return;
 
     console.log("Generating heatmap image...");
 
-    // 创建临时canvas
+    // Create a temporary canvas
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -356,25 +356,25 @@ function CanvasHeatmapOverlay({
     const rows = data.length;
     const cols = data[0].length;
 
-    // 根据数据密度调整Canvas大小
+    // Adjust canvas size based on data density
     const density = Math.max(1, Math.min(4, Math.sqrt(rows * cols / 50000))); // 自动调整密度
     canvas.width = cols * density;
     canvas.height = rows * density;
 
     console.log(`Canvas size: ${canvas.width}x${canvas.height}, density: ${density}, data: ${rows}x${cols}`);
     
-    // 调试数据范围
+    // Debug data ranges
     console.log(`Data range: ${min_value} to ${max_value} ${ncData.units}`);
     console.log(`Lat range: ${Math.min(...lats)} to ${Math.max(...lats)}`);
     console.log(`Lon range: ${Math.min(...lons)} to ${Math.max(...lons)}`);
     console.log(`Data file: ${ncData.filename} (${ncData.satellite}/${ncData.parameter})`);
 
-    // 清空画布
+    // Clear the canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     let validCells = 0;
 
-    // 遍历数据并绘制像素块 - 匹配pcolormesh(LON, LAT, data)的索引方式
+    // Iterate over the data and draw pixel blocks - matches pcolormesh(LON, LAT, data) indexing
     for (let i = 0; i < rows; i++) {
       for (let j = 0; j < cols; j++) {
         const value = data[i][j];
@@ -382,7 +382,7 @@ function CanvasHeatmapOverlay({
 
         validCells++;
 
-        // 获取颜色 - 使用和静态图一样的色调映射
+        // Get color - same mapping as the static PNG
         const [r, g, b] = getColorForValue(
           value,
           min_value,
@@ -392,8 +392,8 @@ function CanvasHeatmapOverlay({
 
         ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
         
-        // 绘制像素块 - 注意：Canvas的y轴是从上到下，需要翻转
-        // pcolormesh的数据矩阵：data[i][j] 对应 lat[i], lon[j]
+        // Draw pixel block - note: Canvas y-axis is top-to-bottom, so we need to flip
+        // For pcolormesh: data[i][j] corresponds to lat[i], lon[j]
         const x = j * density;
         const y = (rows - 1 - i) * density; // 翻转Y轴以匹配地理坐标
         ctx.fillRect(x, y, density, density);
@@ -402,11 +402,11 @@ function CanvasHeatmapOverlay({
 
     console.log(`Generated heatmap with ${validCells} valid cells`);
 
-    // 转换为图片URL
+    // Convert to image URL
     const dataUrl = canvas.toDataURL('image/png');
     setImageUrl(dataUrl);
 
-    // 计算地理边界 - 过滤 NaN 值
+    // Compute geographic bounds - filter NaN values
     const validLats = lats.filter(lat => !isNaN(lat) && isFinite(lat));
     const validLons = lons.filter(lon => !isNaN(lon) && isFinite(lon));
     
@@ -424,7 +424,7 @@ function CanvasHeatmapOverlay({
     const minLon = Math.min(...validLons);
     const maxLon = Math.max(...validLons);
     
-    // 验证边界值
+    // Validate bounds
     if (isNaN(minLat) || isNaN(maxLat) || isNaN(minLon) || isNaN(maxLon) ||
         !isFinite(minLat) || !isFinite(maxLat) || !isFinite(minLon) || !isFinite(maxLon)) {
       console.warn("Invalid bounds calculated, using default bounds");
@@ -443,16 +443,16 @@ function CanvasHeatmapOverlay({
     console.log(`Image bounds: lat(${minLat}, ${maxLat}), lon(${minLon}, ${maxLon})`);
   }, [ncData, parameter]);
 
-  // 当数据改变时生成新的热力图
+  // Generate a new heatmap when the data changes
   useEffect(() => {
     generateHeatmapImage();
   }, [generateHeatmapImage]);
 
-  // 地图事件监听器 - 用于交互
+  // Map event listener - for interactivity
   function MapEventHandler() {
     useMapEvents({
       click: (e: LeafletMouseEvent) => {
-        // 处理点击事件，查找最近的数据点
+        // Handle click event: find the nearest data point
         if (!ncData) return;
         
         const { data, lats, lons } = ncData;
@@ -480,7 +480,7 @@ function CanvasHeatmapOverlay({
           }
         }
         
-        if (closestPoint && minDistance < 0.1) { // 点击阈值
+        if (closestPoint && minDistance < 0.1) { // click threshold
           console.log("Clicked data point:", closestPoint);
           onPointHover(closestPoint, e.containerPoint.x, e.containerPoint.y);
         }
@@ -490,7 +490,7 @@ function CanvasHeatmapOverlay({
     return null;
   }
 
-  // 验证边界是否有效
+  // Validate whether bounds are valid
   const isValidBounds = imageBounds && 
     imageBounds.length === 2 && 
     imageBounds[0] && 
