@@ -357,7 +357,7 @@ function CanvasHeatmapOverlay({
     const cols = data[0].length;
 
     // Adjust canvas size based on data density
-    const density = Math.max(1, Math.min(4, Math.sqrt(rows * cols / 50000))); // 自动调整密度
+    const density = Math.max(1, Math.min(4, Math.sqrt(rows * cols / 50000))); // Auto-adjust density
     canvas.width = cols * density;
     canvas.height = rows * density;
 
@@ -395,7 +395,7 @@ function CanvasHeatmapOverlay({
         // Draw pixel block - note: Canvas y-axis is top-to-bottom, so we need to flip
         // For pcolormesh: data[i][j] corresponds to lat[i], lon[j]
         const x = j * density;
-        const y = (rows - 1 - i) * density; // 翻转Y轴以匹配地理坐标
+        const y = (rows - 1 - i) * density; // Flip Y-axis to match geographic coordinates
         ctx.fillRect(x, y, density, density);
       }
     }
@@ -536,7 +536,7 @@ export function CanvasInteractiveMap({
   const currentParam = availableParameters.find((p) => p.id === parameter);
   const satelliteMapping = SATELLITE_MAPPING[parameter as keyof typeof SATELLITE_MAPPING];
 
-  // 获取当前时间戳和文件名 (与之前相同的逻辑)
+  // Get current timestamp and filename (same logic as before)
   const currentTimestamp = useMemo(() => {
     if (!satelliteMapping) return null;
 
@@ -567,7 +567,7 @@ export function CanvasInteractiveMap({
       if (parameter === "ssth") {
         return `${currentTimestamp}.nc`;
       } else if (parameter === "ssha-swot") {
-        // SWOT: 获取可用的NC文件
+        // SWOT: get available NC files
         const ncFiles = await getParameterFiles(parameter, "nc");
         if (ncFiles && ncFiles.length > 0) {
           return ncFiles[0].filename;
@@ -595,15 +595,15 @@ export function CanvasInteractiveMap({
     }
   }, [parameter, satelliteMapping, getParameterFiles, currentTimestamp]);
 
-  // 获取实际数据的时间戳（用于显示）
+  // Get actual data timestamp (for display)
   const actualDataTimestamp = useMemo(() => {
     if (!ncData?.filename) return null;
     
-    // 从文件名中提取时间戳
+    // Extract timestamp from filename
     const filename = ncData.filename;
     
     if (parameter === "ssth") {
-      // Himawari格式: YYYYMMDDHHMMSS.nc -> 显示为可读格式
+      // Himawari format: YYYYMMDDHHMMSS.nc -> display as readable format
       const timestamp = filename.replace('.nc', '');
       const year = timestamp.substring(0, 4);
       const month = timestamp.substring(4, 6);
@@ -613,8 +613,8 @@ export function CanvasInteractiveMap({
       const second = timestamp.substring(12, 14);
       return `${day}/${month}/${year}, ${hour}:${minute}:${second}`;
     } else if (parameter === "ssha-swot") {
-      // SWOT格式: subset_SWOT_L3_LR_SSH_Expert_029_062_20250226T145417_20250226T154543_v2.0.1.nc
-      // 提取 20250226T145417 部分
+      // SWOT format: subset_SWOT_L3_LR_SSH_Expert_029_062_20250226T145417_20250226T154543_v2.0.1.nc
+      // Extract 20250226T145417 part
       const match = filename.match(/(\d{8})T(\d{6})/);
       if (match) {
         const datePart = match[1]; // 20250226
@@ -629,7 +629,7 @@ export function CanvasInteractiveMap({
       }
       return null;
     } else {
-      // Sentinel-3格式: YYYYMMDD_HHMMSS.nc -> 显示为可读格式
+      // Sentinel-3 format: YYYYMMDD_HHMMSS.nc -> display as readable format
       const timestamp = filename.replace('.nc', '');
       const [datePart, timePart] = timestamp.split('_');
       const year = datePart.substring(0, 4);
@@ -642,7 +642,7 @@ export function CanvasInteractiveMap({
     }
   }, [ncData?.filename, parameter]);
 
-  // 加载地图数据 (与之前相同的逻辑)
+  // Load map data (same logic as before)
   const loadMapData = useCallback(async () => {
     if (!satelliteMapping) {
       setError("Unsupported parameter for interactive map");
@@ -684,7 +684,7 @@ export function CanvasInteractiveMap({
     loadMapData();
   }, [loadMapData]);
 
-  // 计算地图中心和边界
+  // Calculate map center and bounds
   const mapCenter = useMemo(() => {
     if (!ncData) return [-22.0, 114.0];
     

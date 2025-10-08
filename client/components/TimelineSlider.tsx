@@ -265,16 +265,34 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
 
           {/* Timeline markers */}
           <div className="absolute -bottom-6 left-0 right-0 flex justify-between text-xs text-cyan-200">
-            {Array.from({ length: 7 }, (_, i) => {
-              const markerTime = new Date(fixedStartDate.getTime() + (totalDuration * i) / 6);
-              const localTime = markerTime.toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              });
-              return <span key={i}>{localTime}</span>;
-            })}
+            {timeRange.granularity === "day" ? (
+              // Day mode: display 24 hourly markers, time only
+              Array.from({ length: 25 }, (_, i) => {
+                const markerTime = new Date(fixedStartDate.getTime() + (totalDuration * i) / 24);
+                const localTime = markerTime.toLocaleTimeString("en-US", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  hour12: false, // 24-hour format
+                });
+                return (
+                  <span key={i} className="text-xs">
+                    {localTime}
+                  </span>
+                );
+              })
+            ) : (
+              // Week and All modes: display 7 marker points
+              Array.from({ length: 7 }, (_, i) => {
+                const markerTime = new Date(fixedStartDate.getTime() + (totalDuration * i) / 6);
+                const localTime = markerTime.toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                });
+                return <span key={i}>{localTime}</span>;
+              })
+            )}
           </div>
           
           {/* Current Selection Indicator */}

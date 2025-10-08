@@ -84,7 +84,7 @@ export default function NingalooResearchApp() {
         });
       } catch (error) {
         console.error("Failed to parse stored time range:", error);
-        // 如果解析失败，设置默认时间范围
+        // If parsing fails, set default time range
         setSelectedTimeRange({
           start: new Date("2025-09-12T00:00:00Z"),
           end: new Date(),
@@ -92,7 +92,7 @@ export default function NingalooResearchApp() {
         });
       }
     } else {
-      // 如果没有存储的时间范围，设置默认时间范围
+      // If no stored time range, set default time range
       setSelectedTimeRange({
         start: new Date("2025-09-12T00:00:00Z"),
         end: new Date(),
