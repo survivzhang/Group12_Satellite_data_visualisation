@@ -27,18 +27,36 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
   const lastTimeRef = useRef<number>(0);
 
   const granularityOptions = [
-    { id: "months", label: "Months", duration: 30 * 24 * 60 * 60 * 1000 },
-    { id: "weeks", label: "Weeks", duration: 7 * 24 * 60 * 60 * 1000 },
-    { id: "days", label: "Days", duration: 24 * 60 * 60 * 1000 },
-    { id: "hours", label: "Hours", duration: 60 * 60 * 1000 },
+    { id: "day", label: "Day (24h)", duration: 24 * 60 * 60 * 1000 },
+    { id: "week", label: "Week (7 days)", duration: 7 * 24 * 60 * 60 * 1000 },
+    { id: "all", label: "All", duration: 0 }, // 0 means show all available data
   ];
 
   const currentGranularity =
-    granularityOptions.find((g) => g.id === timeRange.granularity) || granularityOptions[3];
+    granularityOptions.find((g) => g.id === timeRange.granularity) || granularityOptions[0];
 
-  // Fixed date range: September 12, 2025 to now
-  const fixedStartDate = new Date("2025-09-12T00:00:00Z");
-  const fixedEndDate = new Date();
+  // Dynamic date range based on current time
+  const now = new Date();
+  const getTimeRange = () => {
+    const currentGranularity = granularityOptions.find((g) => g.id === timeRange.granularity) || granularityOptions[0];
+    
+    if (currentGranularity.id === "all") {
+      // For "All", show from September 12, 2025 to now
+      return {
+        start: new Date("2025-09-12T00:00:00Z"),
+        end: now,
+      };
+    } else {
+      // For "day" and "week", show from X hours/days ago to now
+      const duration = currentGranularity.duration;
+      return {
+        start: new Date(now.getTime() - duration),
+        end: now,
+      };
+    }
+  };
+  
+  const { start: fixedStartDate, end: fixedEndDate } = getTimeRange();
   const totalDuration = fixedEndDate.getTime() - fixedStartDate.getTime();
 
   // Auto-play functionality
@@ -87,24 +105,27 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
   const handleGranularityChange = (granularity: string) => {
     const option = granularityOptions.find((g) => g.id === granularity);
     if (option) {
-      const currentTime = new Date(
-        fixedStartDate.getTime() + (totalDuration * currentPosition) / 100
-      );
-      const center = currentTime;
-      const newStart = new Date(center.getTime() - option.duration / 2);
-      const newEnd = new Date(center.getTime() + option.duration / 2);
-
-      onChange({
-        start:
-          Math.max(newStart.getTime(), fixedStartDate.getTime()) > fixedStartDate.getTime()
-            ? newStart
-            : fixedStartDate,
-        end:
-          Math.min(newEnd.getTime(), fixedEndDate.getTime()) < fixedEndDate.getTime()
-            ? newEnd
-            : fixedEndDate,
-        granularity: granularity as any,
-      });
+      const now = new Date();
+      
+      if (option.id === "all") {
+        // For "All", show from September 12, 2025 to now
+        onChange({
+          start: new Date("2025-09-12T00:00:00Z"),
+          end: now,
+          granularity: granularity as any,
+        });
+      } else {
+        // For "day" and "week", show from X hours/days ago to now
+        const duration = option.duration;
+        onChange({
+          start: new Date(now.getTime() - duration),
+          end: now,
+          granularity: granularity as any,
+        });
+      }
+      
+      // Reset position to end (now) when changing granularity
+      setCurrentPosition(100);
     }
   };
 
@@ -119,29 +140,23 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
     const currentTime = getCurrentDateTime();
 
     switch (timeRange.granularity) {
-      case "months":
-        return currentTime.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-      case "weeks":
-        return `Week of ${currentTime.toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        })}`;
-      case "days":
+      case "day":
         return currentTime.toLocaleDateString("en-US", {
           weekday: "long",
           month: "long",
           day: "numeric",
           year: "numeric",
         });
-      case "hours":
-        return currentTime.toLocaleString("en-US", {
-          weekday: "long",
-          month: "long",
+      case "week":
+        return `Week of ${currentTime.toLocaleDateString("en-US", {
+          month: "short",
           day: "numeric",
           year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
+        })}`;
+      case "all":
+        return currentTime.toLocaleDateString("en-US", { 
+          month: "long", 
+          year: "numeric" 
         });
       default:
         return currentTime.toLocaleDateString();
@@ -186,7 +201,17 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
           <div>
             <div className="font-medium text-white">{formatDateRange()}</div>
             <div className="text-sm text-cyan-200">
-              Viewing {currentGranularity.label.toLowerCase()} resolution • August 10, 2025 to now (Local Time)
+              Viewing {currentGranularity.label.toLowerCase()} resolution • {(() => {
+                const now = new Date();
+                if (currentGranularity.id === "all") {
+                  return "September 12, 2025 to now (Local Time)";
+                } else if (currentGranularity.id === "day") {
+                  return "Last 24 hours to now (Local Time)";
+                } else if (currentGranularity.id === "week") {
+                  return "Last 7 days to now (Local Time)";
+                }
+                return "Local Time";
+              })()}
             </div>
           </div>
         </div>
@@ -203,6 +228,28 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
 
       {/* Timeline Slider */}
       <div className="space-y-8">
+        {/* Time Range Indicator */}
+        <div className="flex items-center justify-between text-sm text-cyan-200">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-cyan-400 rounded-full"></div>
+            <span>Start: {fixedStartDate.toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 bg-cyan-600 rounded-full"></div>
+            <span>End: {fixedEndDate.toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}</span>
+          </div>
+        </div>
+        
         <div className="relative">
           <input
             type="range"
@@ -219,7 +266,6 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
           {/* Timeline markers */}
           <div className="absolute -bottom-6 left-0 right-0 flex justify-between text-xs text-cyan-200">
             {Array.from({ length: 7 }, (_, i) => {
-              const totalDuration = fixedEndDate.getTime() - fixedStartDate.getTime();
               const markerTime = new Date(fixedStartDate.getTime() + (totalDuration * i) / 6);
               const localTime = markerTime.toLocaleDateString("en-US", {
                 month: "short",
@@ -229,6 +275,21 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
               });
               return <span key={i}>{localTime}</span>;
             })}
+          </div>
+          
+          {/* Current Selection Indicator */}
+          <div className="absolute -top-8 left-0 right-0 flex justify-center">
+            <div className="bg-cyan-600/90 backdrop-blur text-white px-3 py-1 rounded-full text-xs font-medium">
+              {(() => {
+                const currentTime = new Date(fixedStartDate.getTime() + (totalDuration * currentPosition) / 100);
+                return currentTime.toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                });
+              })()}
+            </div>
           </div>
         </div>
 

@@ -30,9 +30,9 @@ export default function NingalooResearchApp() {
   ]);
 
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>({
-    start: new Date("2025-09-12T00:00:00Z"),
-    end: new Date("2025-09-12T12:00:00Z"), // 设置为12小时后，避免水合错误
-    granularity: "hours",
+    start: new Date(Date.now() - 24 * 60 * 60 * 1000), // 24 hours ago
+    end: new Date(), // now
+    granularity: "day",
   });
 
   const [expandedParams, setExpandedParams] = useState(false);
@@ -88,7 +88,7 @@ export default function NingalooResearchApp() {
         setSelectedTimeRange({
           start: new Date("2025-09-12T00:00:00Z"),
           end: new Date(),
-          granularity: "hours",
+          granularity: "day",
         });
       }
     } else {
@@ -96,7 +96,7 @@ export default function NingalooResearchApp() {
       setSelectedTimeRange({
         start: new Date("2025-09-12T00:00:00Z"),
         end: new Date(),
-        granularity: "hours",
+        granularity: "day",
       });
     }
   }, []);

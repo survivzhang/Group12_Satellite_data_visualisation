@@ -595,6 +595,53 @@ export function CanvasInteractiveMap({
     }
   }, [parameter, satelliteMapping, getParameterFiles, currentTimestamp]);
 
+  // 获取实际数据的时间戳（用于显示）
+  const actualDataTimestamp = useMemo(() => {
+    if (!ncData?.filename) return null;
+    
+    // 从文件名中提取时间戳
+    const filename = ncData.filename;
+    
+    if (parameter === "ssth") {
+      // Himawari格式: YYYYMMDDHHMMSS.nc -> 显示为可读格式
+      const timestamp = filename.replace('.nc', '');
+      const year = timestamp.substring(0, 4);
+      const month = timestamp.substring(4, 6);
+      const day = timestamp.substring(6, 8);
+      const hour = timestamp.substring(8, 10);
+      const minute = timestamp.substring(10, 12);
+      const second = timestamp.substring(12, 14);
+      return `${day}/${month}/${year}, ${hour}:${minute}:${second}`;
+    } else if (parameter === "ssha-swot") {
+      // SWOT格式: subset_SWOT_L3_LR_SSH_Expert_029_062_20250226T145417_20250226T154543_v2.0.1.nc
+      // 提取 20250226T145417 部分
+      const match = filename.match(/(\d{8})T(\d{6})/);
+      if (match) {
+        const datePart = match[1]; // 20250226
+        const timePart = match[2]; // 145417
+        const year = datePart.substring(0, 4);
+        const month = datePart.substring(4, 6);
+        const day = datePart.substring(6, 8);
+        const hour = timePart.substring(0, 2);
+        const minute = timePart.substring(2, 4);
+        const second = timePart.substring(4, 6);
+        return `${day}/${month}/${year}, ${hour}:${minute}:${second}`;
+      }
+      return null;
+    } else {
+      // Sentinel-3格式: YYYYMMDD_HHMMSS.nc -> 显示为可读格式
+      const timestamp = filename.replace('.nc', '');
+      const [datePart, timePart] = timestamp.split('_');
+      const year = datePart.substring(0, 4);
+      const month = datePart.substring(4, 6);
+      const day = datePart.substring(6, 8);
+      const hour = timePart.substring(0, 2);
+      const minute = timePart.substring(2, 4);
+      const second = timePart.substring(4, 6);
+      return `${day}/${month}/${year}, ${hour}:${minute}:${second}`;
+    }
+  }, [ncData?.filename, parameter]);
+
   // 加载地图数据 (与之前相同的逻辑)
   const loadMapData = useCallback(async () => {
     if (!satelliteMapping) {
@@ -785,7 +832,7 @@ export function CanvasInteractiveMap({
         </Badge>
         <Badge className="bg-white/20 backdrop-blur text-white border-white/30 whitespace-nowrap">
           <div className="text-xs truncate">
-            {timeRange.start.toLocaleString()}
+            {actualDataTimestamp || timeRange.start.toLocaleString()}
           </div>
         </Badge>
 
