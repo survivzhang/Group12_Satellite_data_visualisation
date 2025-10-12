@@ -117,7 +117,7 @@ processor.authenticate()
 downloaded_files = processor.download_data(
     layer_keys=['sentinel3a_sst', 'sentinel3a_chl'],
     region=(111, -25, 114, -20),  # Western Australia
-    time_range=('2025-09-12T00:00:00.000Z', datetime.utcnow().isoformat() + 'Z')
+    time_range=('2025-10-01T00:00:00.000Z', datetime.utcnow().isoformat() + 'Z')
 )
 
 # Create visualizations
@@ -136,7 +136,7 @@ workflow = EUMETViewWorkflow(base_dir="data/sentinel3")
 workflow.run_complete_workflow(
     layer_keys=['sentinel3a_sst', 'sentinel3a_chl'],
     region=(111, -25, 114, -20),
-    time_range=('2025-09-12T00:00:00.000Z', datetime.utcnow().isoformat() + 'Z')
+    time_range=('2025-10-01T00:00:00.000Z', datetime.utcnow().isoformat() + 'Z')
 )
 ```
 
