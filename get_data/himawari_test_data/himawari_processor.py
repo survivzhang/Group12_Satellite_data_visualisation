@@ -1057,19 +1057,236 @@ class HimawariFileMonitor:
             print("\n=== Auto Repair Service Stopped ===")
 
 
-def create_file_monitor(base_dir
-                        : str = "data/himawari/sst") -> HimawariFileMonitor:
+def create_file_monitor(base_dir: str = "data/himawari/sst") -> HimawariFileMonitor:
     """
     Convenience function to create a file monitor
-    
+
     Args:
         base_dir: Data directory
-    
+
     Returns:
         HimawariFileMonitor instance
     """
     processor = HimawariDataProcessor(base_dir)
     return HimawariFileMonitor(processor)
+
+
+class HimawariImageFallback:
+    """Find nearest available PNG image when requested time has no image"""
+
+    def __init__(self, processor: HimawariDataProcessor):
+        """
+        Initialize fallback handler
+
+        Args:
+            processor: HimawariDataProcessor instance
+        """
+        self.processor = processor
+        self.png_dir = processor.png_dir
+        self.legacy_png_dir = processor.legacy_png_dir
+
+    def get_available_times(self) -> List[datetime]:
+        """
+        Get all available PNG timestamps
+
+        Returns:
+            Sorted list of datetime objects for available PNGs
+        """
+        available_times = []
+
+        # Check both unified and legacy directories
+        for png_dir in [self.png_dir, self.legacy_png_dir]:
+            if not png_dir.exists():
+                continue
+
+            for png_file in png_dir.glob("*.png"):
+                try:
+                    # Parse timestamp from filename (format: YYYYMMDDHHMMSS.png)
+                    time_str = png_file.stem  # Remove .png extension
+                    if len(time_str) == 14 and time_str.isdigit():
+                        dt = datetime.strptime(time_str, "%Y%m%d%H%M%S")
+                        available_times.append(dt)
+                except Exception as e:
+                    print(f"Warning: Could not parse timestamp from {png_file.name}: {e}")
+                    continue
+
+        # Remove duplicates and sort
+        available_times = sorted(list(set(available_times)))
+        return available_times
+
+    def find_nearest_image(self, requested_time: datetime, prefer_before: bool = True) -> Optional[Tuple[str, Path, float]]:
+        """
+        Find the nearest available PNG image to the requested time
+
+        Args:
+            requested_time: Requested datetime
+            prefer_before: If True, prefer images at or before requested_time (like Sentinel-3 logic)
+
+        Returns:
+            Tuple of (time_string, file_path, time_diff_seconds) or None if no images available
+        """
+        available_times = self.get_available_times()
+
+        if not available_times:
+            print("No PNG images available")
+            return None
+
+        if prefer_before:
+            # Find the most recent time that is <= requested_time (Sentinel-3 logic)
+            valid_candidates = []
+            for t in available_times:
+                if t <= requested_time:
+                    time_diff = (requested_time - t).total_seconds()
+                    valid_candidates.append((time_diff, t))
+
+            if valid_candidates:
+                # Sort by time difference (smallest first = most recent before requested_time)
+                valid_candidates.sort(key=lambda x: x[0])
+                nearest_diff, nearest_time = valid_candidates[0]
+                print(f"Himawari: Selected time {nearest_time} (before target {requested_time})")
+            else:
+                # No images before requested_time, fallback to closest
+                print(f"No images found before {requested_time}, using closest available")
+                time_diffs = [(abs((t - requested_time).total_seconds()), t) for t in available_times]
+                time_diffs.sort(key=lambda x: x[0])
+                nearest_diff, nearest_time = time_diffs[0]
+        else:
+            # Original logic: find absolutely nearest (any direction)
+            time_diffs = [(abs((t - requested_time).total_seconds()), t) for t in available_times]
+            time_diffs.sort(key=lambda x: x[0])
+            nearest_diff, nearest_time = time_diffs[0]
+
+        time_str = nearest_time.strftime("%Y%m%d%H%M%S")
+
+        # Find the actual file path (check unified first, then legacy)
+        png_path = self.png_dir / f"{time_str}.png"
+        if not png_path.exists():
+            png_path = self.legacy_png_dir / f"{time_str}.png"
+
+        if not png_path.exists():
+            print(f"Warning: Expected PNG not found at {png_path}")
+            return None
+
+        return (time_str, png_path, nearest_diff)
+
+    def get_image_with_fallback(
+        self,
+        requested_time: datetime,
+        max_time_diff_hours: Optional[float] = None,
+        prefer_before: bool = True
+    ) -> Optional[dict]:
+        """
+        Get image for requested time, fallback to nearest if not available
+
+        Args:
+            requested_time: Requested datetime
+            max_time_diff_hours: Maximum acceptable time difference in hours (None = no limit)
+            prefer_before: If True, prefer images at or before requested_time (like Sentinel-3)
+
+        Returns:
+            Dictionary with image info or None if no suitable image found
+        """
+        time_str = requested_time.strftime("%Y%m%d%H%M%S")
+
+        # Try exact match first
+        png_path = self.png_dir / f"{time_str}.png"
+        legacy_png_path = self.legacy_png_dir / f"{time_str}.png"
+
+        if png_path.exists():
+            return {
+                'time_str': time_str,
+                'requested_time': requested_time,
+                'actual_time': requested_time,
+                'file_path': png_path,
+                'time_diff_seconds': 0.0,
+                'is_exact_match': True
+            }
+
+        if legacy_png_path.exists():
+            return {
+                'time_str': time_str,
+                'requested_time': requested_time,
+                'actual_time': requested_time,
+                'file_path': legacy_png_path,
+                'time_diff_seconds': 0.0,
+                'is_exact_match': True
+            }
+
+        # No exact match, find nearest using Sentinel-3 style logic
+        print(f"No exact image for {time_str}, searching for nearest (prefer_before={prefer_before})...")
+        nearest = self.find_nearest_image(requested_time, prefer_before=prefer_before)
+
+        if nearest is None:
+            return None
+
+        nearest_time_str, nearest_path, time_diff = nearest
+        nearest_dt = datetime.strptime(nearest_time_str, "%Y%m%d%H%M%S")
+
+        # Check if time difference is acceptable
+        if max_time_diff_hours is not None:
+            max_diff_seconds = max_time_diff_hours * 3600
+            if time_diff > max_diff_seconds:
+                print(f"Nearest image is {time_diff/3600:.1f} hours away, exceeds max limit of {max_time_diff_hours} hours")
+                return None
+
+        time_diff_hours = time_diff / 3600
+        direction = "before" if nearest_dt <= requested_time else "after"
+        print(f"Found nearest image: {nearest_time_str} ({time_diff_hours:.1f} hours {direction})")
+
+        return {
+            'time_str': nearest_time_str,
+            'requested_time': requested_time,
+            'actual_time': nearest_dt,
+            'file_path': nearest_path,
+            'time_diff_seconds': time_diff,
+            'time_diff_hours': time_diff_hours,
+            'is_exact_match': False
+        }
+
+    def get_time_range_images(
+        self,
+        start_time: datetime,
+        end_time: datetime,
+        time_step_seconds: int = 3600
+    ) -> List[dict]:
+        """
+        Get images for a time range, using fallback for missing times
+
+        Args:
+            start_time: Start datetime
+            end_time: End datetime
+            time_step_seconds: Time step in seconds
+
+        Returns:
+            List of image info dictionaries
+        """
+        results = []
+        current_time = start_time
+
+        while current_time <= end_time:
+            image_info = self.get_image_with_fallback(current_time)
+            if image_info:
+                results.append(image_info)
+            else:
+                print(f"No suitable image found for {current_time}")
+
+            current_time += pd.Timedelta(seconds=time_step_seconds)
+
+        return results
+
+
+def create_image_fallback_handler(base_dir: str = "data/himawari/sst") -> HimawariImageFallback:
+    """
+    Convenience function to create image fallback handler
+
+    Args:
+        base_dir: Data directory
+
+    Returns:
+        HimawariImageFallback instance
+    """
+    processor = HimawariDataProcessor(base_dir)
+    return HimawariImageFallback(processor)
 
 processor = HimawariDataProcessor()
 

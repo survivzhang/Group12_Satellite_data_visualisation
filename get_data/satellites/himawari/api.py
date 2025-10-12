@@ -52,8 +52,9 @@ class HimawariAPI(BaseSatelliteAPI):
         # Try to import Himawari modules
         self.processor = None
         self.file_monitor = None
+        self.image_fallback = None  # Image fallback handler
         self.tasks = {}  # In-memory task storage
-        
+
         self._initialize_himawari_modules()
     
     def _initialize_himawari_modules(self):
@@ -76,11 +77,13 @@ class HimawariAPI(BaseSatelliteAPI):
             
             self.processor = himawari_processor.HimawariDataProcessor()
             self.file_monitor = himawari_processor.create_file_monitor()
+            self.image_fallback = himawari_processor.create_image_fallback_handler()
             print("✅ Himawari modules initialized successfully")
         except Exception as e:
             print(f"⚠️ Failed to initialize Himawari modules: {e}")
             self.processor = None
             self.file_monitor = None
+            self.image_fallback = None
     
     async def is_available(self) -> bool:
         """Check if Himawari API is available"""
@@ -260,6 +263,10 @@ class HimawariAPI(BaseSatelliteAPI):
         elif path == "system-status":
             status = await self.get_system_status()
             return status.dict()
+        elif path.startswith("image-with-fallback"):
+            # Get image for requested time with fallback to nearest
+            # Expected params: time (ISO format), max_time_diff_hours (optional)
+            return await self._get_image_with_fallback(params)
         else:
             raise HTTPException(status_code=404, detail=f"Himawari endpoint '{path}' not found")
     
@@ -612,3 +619,59 @@ class HimawariAPI(BaseSatelliteAPI):
             }
             
             return await self._repair_missing_files(repair_data, background_tasks)
+
+    async def _get_image_with_fallback(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get image for requested time with fallback to nearest available (Sentinel-3 style)"""
+        if not self.image_fallback:
+            raise HTTPException(status_code=503, detail="Image fallback handler not initialized")
+
+        # Parse requested time
+        time_param = params.get("time")
+        if not time_param:
+            raise HTTPException(status_code=400, detail="Missing 'time' parameter")
+
+        try:
+            # Parse time string
+            from datetime import datetime
+            requested_time = datetime.fromisoformat(time_param.replace('Z', ''))
+
+            # Get max time difference (optional)
+            max_time_diff_hours = params.get("max_time_diff_hours")
+            if max_time_diff_hours:
+                max_time_diff_hours = float(max_time_diff_hours)
+
+            # Get prefer_before parameter (default True to match Sentinel-3 behavior)
+            prefer_before = params.get("prefer_before", "true").lower() != "false"
+
+            # Use fallback handler to find image with Sentinel-3 style logic
+            result = self.image_fallback.get_image_with_fallback(
+                requested_time=requested_time,
+                max_time_diff_hours=max_time_diff_hours,
+                prefer_before=prefer_before
+            )
+
+            if result is None:
+                return {
+                    "success": False,
+                    "message": "No suitable image found",
+                    "requested_time": time_param
+                }
+
+            # Return image info
+            return {
+                "success": True,
+                "time_str": result['time_str'],
+                "requested_time": result['requested_time'].isoformat(),
+                "actual_time": result['actual_time'].isoformat(),
+                "file_path": str(result['file_path']),
+                "file_url": f"/static/himawari/sst/png/{result['time_str']}.png",
+                "time_diff_seconds": result['time_diff_seconds'],
+                "time_diff_hours": result.get('time_diff_hours', result['time_diff_seconds'] / 3600),
+                "is_exact_match": result['is_exact_match'],
+                "prefer_before": prefer_before
+            }
+
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid time format: {str(e)}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to get image with fallback: {str(e)}")

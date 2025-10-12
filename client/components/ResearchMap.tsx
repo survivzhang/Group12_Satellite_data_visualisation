@@ -92,6 +92,22 @@ const SATELLITE_MAPPING = {
 };
 
 // 时间提取函数
+function extractTimeFromHimawariFilename(filename: string): Date | null {
+  // Himawari 文件名格式: YYYYMMDDHHMMSS.png
+  const match = filename.match(/(\d{14})/);
+  if (match) {
+    const timeStr = match[1];
+    const year = parseInt(timeStr.substring(0, 4));
+    const month = parseInt(timeStr.substring(4, 6)) - 1; // JavaScript months are 0-based
+    const day = parseInt(timeStr.substring(6, 8));
+    const hour = parseInt(timeStr.substring(8, 10));
+    const minute = parseInt(timeStr.substring(10, 12));
+    const second = parseInt(timeStr.substring(12, 14));
+    return new Date(Date.UTC(year, month, day, hour, minute, second));
+  }
+  return null;
+}
+
 function extractTimeFromSentinel3Filename(filename: string): Date | null {
   // Sentinel-3 文件名格式: YYYYMMDD_HHMMSS_*.png
   const match = filename.match(/(\d{8})_(\d{6})/);
@@ -456,29 +472,40 @@ export function ResearchMap({
 
 
   // 通用文件查找函数：根据时间查找最合适的文件
+  // 统一逻辑：寻找选中时间点之前或等于最近的那张图（Sentinel-3 style）
   const findBestFileForTime = (files: any[], selectedTime: Date) => {
-    if (parameter === "ssth") {
-      // Himawari 文件查找 - 查找包含时间戳的文件
-      return files.find(
-        (file) => file.filename && file.filename.startsWith(currentTimestamp)
-      );
-    } else {
-      // Sentinel-3 文件查找 - 寻找选中时间点之前最近的那张图
-      let bestFile = null;
-      let bestTimeDiff = Infinity;
+    let bestFile = null;
+    let bestTimeDiff = Infinity;
 
-      for (const file of files) {
-        const fileTime = extractTimeFromSentinel3Filename(file.filename);
-        if (fileTime && fileTime.getTime() <= selectedTime.getTime()) {
-          const timeDiff = selectedTime.getTime() - fileTime.getTime();
-          if (timeDiff < bestTimeDiff) {
-            bestTimeDiff = timeDiff;
-            bestFile = file;
-          }
+    for (const file of files) {
+      // 根据不同卫星提取时间
+      let fileTime: Date | null = null;
+      if (parameter === "ssth") {
+        fileTime = extractTimeFromHimawariFilename(file.filename);
+      } else if (parameter === "ssha-swot") {
+        fileTime = extractTimeFromSwotFilename(file.filename);
+      } else {
+        fileTime = extractTimeFromSentinel3Filename(file.filename);
+      }
+
+      // 只考虑在选中时间之前或等于的文件
+      if (fileTime && fileTime.getTime() <= selectedTime.getTime()) {
+        const timeDiff = selectedTime.getTime() - fileTime.getTime();
+        if (timeDiff < bestTimeDiff) {
+          bestTimeDiff = timeDiff;
+          bestFile = file;
+          console.log(`${parameter} Canvas: Found candidate - file: ${file.filename}, time: ${fileTime.toISOString()}, diff: ${timeDiff}ms`);
         }
       }
-      return bestFile;
     }
+
+    if (bestFile) {
+      console.log(`${parameter} Canvas: Selected best file - ${bestFile.filename}`);
+    } else {
+      console.log(`${parameter} Canvas: No suitable file found before ${selectedTime.toISOString()}`);
+    }
+
+    return bestFile;
   };
 
   useEffect(() => {

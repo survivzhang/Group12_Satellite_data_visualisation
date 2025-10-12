@@ -115,12 +115,12 @@ class EUMETViewDataProcessor:
         
         print(f"Token expires: {self.token.expiration}")
         
-        # Initialize WCS connection
+        # Initialize WCS connection with increased timeout
         self.wcs = WebCoverageService(
             self.SERVICE_URL,
             auth=Authentication(verify=False),
             version='2.0.1',
-            timeout=120
+            timeout=600  # Increased to 10 minutes for large files
         )
         
         print("✓ Successfully authenticated with EUMETView API")
@@ -212,40 +212,75 @@ class EUMETViewDataProcessor:
         layer_key: str,
         region: Tuple[float, float, float, float],
         time_range: Tuple[str, str],
-        format_option: str
+        format_option: str,
+        max_retries: int = 3
     ) -> Path:
-        """Download a single data layer."""
+        """Download a single data layer with retry logic and streaming."""
         layer_id = self.LAYER_CONFIGS.get(layer_key)
         if not layer_id:
             raise ValueError(f"Unknown layer: {layer_key}")
-        
-        # Prepare payload for WCS request
-        payload = {
-            'identifier': [layer_id],
-            'format': format_option,
-            'crs': 'EPSG:4326',
-            'subsets': [
-                ('Lat', region[1], region[3]),
-                ('Long', region[0], region[2]),
-                ('Time', time_range[0], time_range[1])
-            ],
-            'access_token': self.token
-        }
-        
-        # Make WCS request
-        output = self.wcs.getCoverage(**payload)
-        
+
         # Determine output file path using satellite/datatype/nc structure
         satellite, data_type = self._parse_layer_key(layer_key)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{timestamp}.nc"
         file_path = self.get_nc_path(satellite, data_type, filename)
-        
-        # Save data
-        with open(file_path, 'wb') as f:
-            f.write(output.read())
-        
-        return file_path
+
+        # Retry loop
+        for attempt in range(max_retries):
+            try:
+                print(f"Download attempt {attempt + 1}/{max_retries}...")
+
+                # Prepare payload for WCS request
+                payload = {
+                    'identifier': [layer_id],
+                    'format': format_option,
+                    'crs': 'EPSG:4326',
+                    'subsets': [
+                        ('Lat', region[1], region[3]),
+                        ('Long', region[0], region[2]),
+                        ('Time', time_range[0], time_range[1])
+                    ],
+                    'access_token': self.token
+                }
+
+                # Make WCS request
+                output = self.wcs.getCoverage(**payload)
+
+                # Save data with streaming to handle large files
+                with open(file_path, 'wb') as f:
+                    chunk_size = 8192  # 8KB chunks
+                    bytes_downloaded = 0
+                    while True:
+                        chunk = output.read(chunk_size)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        bytes_downloaded += len(chunk)
+
+                        # Print progress every 10MB
+                        if bytes_downloaded % (10 * 1024 * 1024) == 0:
+                            print(f"Downloaded {bytes_downloaded / (1024 * 1024):.1f} MB...")
+
+                print(f"✓ Download complete: {bytes_downloaded / (1024 * 1024):.2f} MB")
+                return file_path
+
+            except Exception as e:
+                error_msg = str(e)
+                print(f"✗ Download attempt {attempt + 1} failed: {error_msg}")
+
+                # Clean up partial file
+                if file_path.exists():
+                    file_path.unlink()
+
+                # If this was the last attempt, raise the error
+                if attempt == max_retries - 1:
+                    raise RuntimeError(f"Failed after {max_retries} attempts: {error_msg}")
+
+                # Wait before retrying (exponential backoff)
+                wait_time = 2 ** attempt  # 1s, 2s, 4s
+                print(f"Waiting {wait_time}s before retry...")
+                time.sleep(wait_time)
     
     def _parse_layer_key(self, layer_key: str) -> Tuple[str, str]:
         """Parse layer key to extract satellite and data type."""
@@ -530,55 +565,66 @@ class EUMETViewDataProcessor:
     def get_optimal_time_range(self, satellite: str, data_type: str, requested_start: datetime, requested_end: datetime) -> Tuple[datetime, datetime]:
         """
         Get optimal time range for download, considering existing files.
-        
+        Uses the closer date between requested_start and latest file time.
+
         Args:
             satellite: Satellite name (sentinel3a, sentinel3b)
             data_type: Data type (sst, chl)
             requested_start: Original requested start time
             requested_end: Original requested end time
-            
+
         Returns:
             Tuple of (optimal_start_time, optimal_end_time)
         """
+        from datetime import timezone
+
+        # Ensure timezone consistency
+        if requested_start.tzinfo is None:
+            requested_start = requested_start.replace(tzinfo=timezone.utc)
+        if requested_end.tzinfo is None:
+            requested_end = requested_end.replace(tzinfo=timezone.utc)
+
         latest_file_time = self.get_latest_file_time(satellite, data_type)
-        
+
         if latest_file_time is None:
             # No existing files, use requested range
             print(f"No existing files for {satellite}/{data_type}, using full requested range")
             return requested_start, requested_end
-        
+
         # Convert to datetime if needed
         if hasattr(latest_file_time, 'to_pydatetime'):
             latest_file_time = latest_file_time.to_pydatetime()
         elif hasattr(latest_file_time, 'item'):
             latest_file_time = latest_file_time.item()
-        
-        # Ensure timezone consistency
+
+        # Ensure latest_file_time is timezone-aware
         if latest_file_time.tzinfo is None:
-            # Make naive datetime timezone-aware (UTC)
-            from datetime import timezone
             latest_file_time = latest_file_time.replace(tzinfo=timezone.utc)
-        
-        if requested_start.tzinfo is None:
-            requested_start = requested_start.replace(tzinfo=timezone.utc)
-        if requested_end.tzinfo is None:
-            requested_end = requested_end.replace(tzinfo=timezone.utc)
-        
-        # Add small buffer (1 hour) to avoid overlap
+
+        # Choose the closer date to requested_end (between requested_start and latest_file_time)
+        # Add small buffer (1 hour) to latest file time to avoid overlap
         buffer = timedelta(hours=1)
-        optimal_start = latest_file_time + buffer
-        
-        # Don't go beyond requested end time
-        optimal_end = min(optimal_start + timedelta(days=1), requested_end)
-        
+        latest_file_with_buffer = latest_file_time + buffer
+
+        # Use whichever is closer to the requested_end (i.e., later in time)
+        if latest_file_with_buffer > requested_start:
+            optimal_start = latest_file_with_buffer
+            print(f"Latest file time for {satellite}/{data_type}: {latest_file_time}")
+            print(f"Using latest file time + buffer as start: {optimal_start}")
+        else:
+            optimal_start = requested_start
+            print(f"Latest file time for {satellite}/{data_type}: {latest_file_time}")
+            print(f"Latest file is older than requested start, using requested start: {optimal_start}")
+
         # If optimal start is after requested end, no new data needed
         if optimal_start >= requested_end:
-            print(f"Latest file time {latest_file_time} is already up to date for {satellite}/{data_type}")
+            print(f"Already up to date for {satellite}/{data_type}")
             return None, None
-        
-        print(f"Latest file time for {satellite}/{data_type}: {latest_file_time}")
+
+        optimal_end = requested_end
+
         print(f"Optimal download range: {optimal_start} to {optimal_end}")
-        
+
         return optimal_start, optimal_end
 
 
@@ -648,30 +694,69 @@ class EUMETViewWorkflow:
             )
             
             try:
-                # Download data for this layer only
-                print(f"📥 Downloading {layer_key} from {optimal_time_range[0]} to {optimal_time_range[1]}")
-                downloaded_files = self.processor.download_data(
-                    layer_keys=[layer_key],
-                    region=region,
-                    time_range=optimal_time_range
-                )
-                
-                if downloaded_files:
-                    total_downloaded += len(downloaded_files)
-                    print(f"✅ Downloaded {len(downloaded_files)} files for {layer_key}")
-                    
-                    # Process and visualize immediately
-                    print(f"🎨 Creating visualizations for {layer_key}")
-                    visualization_files = self.processor.process_and_visualize(
-                        downloaded_files=downloaded_files
-                    )
-                    
-                    plots_count = sum(len(plots) for plots in visualization_files.values())
-                    total_visualized += plots_count
-                    print(f"✅ Generated {plots_count} plots for {layer_key}")
+                # Calculate total time range
+                total_duration = optimal_end - optimal_start
+                total_days = total_duration.days + total_duration.seconds / 86400
+
+                # Split into 7-day chunks if time range > 7 days
+                from datetime import timedelta
+                if total_days > 7:
+                    chunk_size = timedelta(days=7)
+                    print(f"Time range is {total_days:.1f} days, splitting into 7-day chunks")
                 else:
-                    print(f"⚠️ No data downloaded for {layer_key}")
-                    
+                    chunk_size = total_duration
+                    print(f"Time range is {total_days:.1f} days, downloading as single request")
+
+                current_start = optimal_start
+                chunk_count = 0
+
+                while current_start < optimal_end:
+                    chunk_count += 1
+                    current_end = min(current_start + chunk_size, optimal_end)
+
+                    chunk_time_range = (
+                        current_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        current_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    )
+
+                    chunk_duration = (current_end - current_start).days + (current_end - current_start).seconds / 86400
+                    print(f"📥 Downloading {layer_key} chunk {chunk_count} ({chunk_duration:.1f} days): {chunk_time_range[0]} to {chunk_time_range[1]}")
+
+                    try:
+                        downloaded_files = self.processor.download_data(
+                            layer_keys=[layer_key],
+                            region=region,
+                            time_range=chunk_time_range
+                        )
+
+                        if downloaded_files:
+                            total_downloaded += len(downloaded_files)
+                            print(f"✅ Downloaded {len(downloaded_files)} files for chunk {chunk_count}")
+
+                            # Process and visualize immediately
+                            print(f"🎨 Creating visualizations for chunk {chunk_count}")
+                            visualization_files = self.processor.process_and_visualize(
+                                downloaded_files=downloaded_files
+                            )
+
+                            plots_count = sum(len(plots) for plots in visualization_files.values())
+                            total_visualized += plots_count
+                            print(f"✅ Generated {plots_count} plots for chunk {chunk_count}")
+                        else:
+                            print(f"⚠️ No data downloaded for chunk {chunk_count}")
+
+                    except Exception as chunk_error:
+                        print(f"❌ Failed to download chunk {chunk_count}: {chunk_error}")
+                        # Continue with next chunk instead of failing completely
+
+                    # Move to next chunk
+                    current_start = current_end
+
+                    # Add small delay between chunks to avoid rate limiting
+                    if current_start < optimal_end:
+                        print(f"Waiting 5 seconds before next chunk...")
+                        time.sleep(5)
+
             except Exception as e:
                 print(f"❌ Failed to process {layer_key}: {e}")
                 continue
