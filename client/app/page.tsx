@@ -86,7 +86,7 @@ export default function NingalooResearchApp() {
         console.error("Failed to parse stored time range:", error);
         // If parsing fails, set default time range
         setSelectedTimeRange({
-          start: new Date("2025-09-12T00:00:00Z"),
+          start: new Date("2025-10-01T00:00:00Z"),
           end: new Date(),
           granularity: "day",
         });
@@ -94,7 +94,7 @@ export default function NingalooResearchApp() {
     } else {
       // If no stored time range, set default time range
       setSelectedTimeRange({
-        start: new Date("2025-09-12T00:00:00Z"),
+        start: new Date("2025-10-01T00:00:00Z"),
         end: new Date(),
         granularity: "day",
       });

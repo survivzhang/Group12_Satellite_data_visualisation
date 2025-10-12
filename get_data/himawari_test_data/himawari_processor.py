@@ -696,7 +696,7 @@ def run_himawari_workflow_example():
     """Run an example Himawari data processing workflow"""
     
     # Configuration parameters
-    timelims = ("2025-09-12T00:00:00", datetime.utcnow().isoformat())
+    timelims = ("2025-10-01T00:00:00", datetime.utcnow().isoformat())
     lonlims = (111, 114)  # Western Australia region
     latlims = (-25, -20)
     tstep = 3600  # 1 hour interval
@@ -1075,7 +1075,7 @@ processor = HimawariDataProcessor()
 
 # Commented out auto-execution to prevent automatic data download on API startup
 # processor.process_time_series(
-#     timelims=("2025-09-12T00:00:00", datetime.utcnow().isoformat()),
+#     timelims=("2025-10-01T00:00:00", datetime.utcnow().isoformat()),
 #     lonlims=(111, 114),
 #     latlims=(-25, -20),
 #     tstep=3600,

@@ -43,7 +43,7 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
     if (currentGranularity.id === "all") {
       // For "All", show from September 12, 2025 to now
       return {
-        start: new Date("2025-09-12T00:00:00Z"),
+        start: new Date("2025-10-01T00:00:00Z"),
         end: now,
       };
     } else {
@@ -110,7 +110,7 @@ export function TimelineSlider({ timeRange, onChange, variant = "glass" }: Timel
       if (option.id === "all") {
         // For "All", show from September 12, 2025 to now
         onChange({
-          start: new Date("2025-09-12T00:00:00Z"),
+          start: new Date("2025-10-01T00:00:00Z"),
           end: now,
           granularity: granularity as any,
         });
