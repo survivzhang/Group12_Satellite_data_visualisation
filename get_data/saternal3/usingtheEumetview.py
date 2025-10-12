@@ -249,18 +249,12 @@ class EUMETViewDataProcessor:
 
                 # Save data with streaming to handle large files
                 with open(file_path, 'wb') as f:
-                    chunk_size = 8192  # 8KB chunks
                     bytes_downloaded = 0
-                    while True:
-                        chunk = output.read(chunk_size)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        bytes_downloaded += len(chunk)
-
-                        # Print progress every 10MB
-                        if bytes_downloaded % (10 * 1024 * 1024) == 0:
-                            print(f"Downloaded {bytes_downloaded / (1024 * 1024):.1f} MB...")
+                    # Read all content from ResponseWrapper
+                    content = output.read()
+                    f.write(content)
+                    bytes_downloaded = len(content)
+                    print(f"Downloaded {bytes_downloaded / (1024 * 1024):.1f} MB...")
 
                 print(f"✓ Download complete: {bytes_downloaded / (1024 * 1024):.2f} MB")
                 return file_path
